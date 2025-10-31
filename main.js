@@ -21870,6 +21870,9 @@
     const queue = [{ fetchUrl: initialFetch, linkUrl: initial, depth: 0 }];
     const seen = /* @__PURE__ */ new Set();
     const files = [];
+    const initialUrl = new URL(initial.startsWith(LOCAL_PROXY_PREFIX) ? decodeURIComponent(initial.slice(LOCAL_PROXY_PREFIX.length)) : initial);
+    const baseDomain = initialUrl.hostname;
+    const basePath = initialUrl.pathname;
     while (queue.length) {
       if (signal?.aborted) break;
       const current = queue.shift();
@@ -21882,6 +21885,13 @@
         const entries = parseDirectoryListing(text, linkBase);
         for (const entry of entries) {
           const resolvedLink = new URL(entry.href, linkBase).href;
+          const linkUrl2 = new URL(resolvedLink);
+          if (linkUrl2.hostname !== baseDomain) {
+            continue;
+          }
+          if (!linkUrl2.pathname.startsWith(basePath)) {
+            continue;
+          }
           let resolvedFetch = resolvedLink;
           if (proxyMode === "local") {
             resolvedFetch = buildLocalProxyUrl(resolvedLink);

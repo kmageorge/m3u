@@ -462,6 +462,13 @@ async function crawlDirectory(baseUrl, options = {}) {
   const queue = [{ fetchUrl: initialFetch, linkUrl: initial, depth: 0 }];
   const seen = new Set();
   const files = [];
+  
+  // Get the base domain/path to stay within
+  const initialUrl = new URL(initial.startsWith(LOCAL_PROXY_PREFIX) 
+    ? decodeURIComponent(initial.slice(LOCAL_PROXY_PREFIX.length)) 
+    : initial);
+  const baseDomain = initialUrl.hostname;
+  const basePath = initialUrl.pathname;
 
   while (queue.length) {
     if (signal?.aborted) break;
@@ -475,6 +482,16 @@ async function crawlDirectory(baseUrl, options = {}) {
       const entries = parseDirectoryListing(text, linkBase);
       for (const entry of entries) {
         const resolvedLink = new URL(entry.href, linkBase).href;
+        
+        // Filter out external links (different domain or outside base path)
+        const linkUrl = new URL(resolvedLink);
+        if (linkUrl.hostname !== baseDomain) {
+          continue; // Skip external domains (yahoo, instagram, etc)
+        }
+        if (!linkUrl.pathname.startsWith(basePath)) {
+          continue; // Skip links outside the base path
+        }
+        
         let resolvedFetch = resolvedLink;
         if (proxyMode === "local") {
           resolvedFetch = buildLocalProxyUrl(resolvedLink);
