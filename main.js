@@ -21854,7 +21854,7 @@
     cleaned = cleaned.replace(/\b(complete|season|series|collection|boxset|box\s*set)\b/gi, " ");
     return cleaned.replace(/\s+/g, " ").trim();
   }
-  function parseMediaName(filename) {
+  function parseMediaName(filename, fullPath = "") {
     const decoded = decodeURIComponent(filename);
     const noExt = decoded.replace(/\.[^/.]+$/, "");
     const episodeRegex = /(?:^|\b)[Ss](\d{1,2})[^\d]{0,2}[Ee](\d{1,2})(?:\b|[^0-9])/;
@@ -21872,8 +21872,20 @@
     if (match) {
       const season = parseInt(match[1], 10);
       const episode = parseInt(match[2], 10);
-      const beforeEpisode = noExt.slice(0, match.index);
-      const title2 = normalizeTitle(beforeEpisode);
+      let title2 = normalizeTitle(noExt.slice(0, match.index));
+      if (fullPath && (!title2 || title2.length < 3)) {
+        const pathParts = fullPath.split("/").filter((p) => p);
+        for (let i = pathParts.length - 1; i >= 0; i--) {
+          const part = pathParts[i];
+          if (!/^(s\d+|season|full\.hd|hd|1080p|720p|480p|bluray|webrip)/i.test(part)) {
+            const candidateTitle = normalizeTitle(part);
+            if (candidateTitle && candidateTitle.length >= 3) {
+              title2 = candidateTitle;
+              break;
+            }
+          }
+        }
+      }
       return { kind: "episode", title: title2, season, episode };
     }
     const partMatch = noExt.match(partNotation);
@@ -21982,13 +21994,13 @@
         return;
       }
       seenUrls.add(urlKey);
-      const meta = parseMediaName(entry.name);
+      const meta = parseMediaName(entry.name, entry.path);
       if (meta.kind === "episode") {
-        const key = meta.showTitle.toLowerCase();
+        const key = meta.title.toLowerCase();
         if (!showMap.has(key)) {
           showMap.set(key, {
             key,
-            title: meta.showTitle,
+            title: meta.title,
             episodes: []
           });
         }
@@ -22307,7 +22319,7 @@
       try {
         const url = entry.url;
         if (!url || importedUrlSetRef.current.has(url)) return;
-        const info = parseMediaName(entry.name || entry.path || url);
+        const info = parseMediaName(entry.name || entry.path || url, entry.path || url);
         if (!info || !info.title) return;
         if (info.kind === "movie") {
           const movieDup = movies.some((m) => (m.url || "") === url);

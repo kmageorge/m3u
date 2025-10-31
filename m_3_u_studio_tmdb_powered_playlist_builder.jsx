@@ -435,7 +435,7 @@ function normalizeTitle(raw) {
   return cleaned.replace(/\s+/g, " ").trim();
 }
 
-function parseMediaName(filename) {
+function parseMediaName(filename, fullPath = "") {
   const decoded = decodeURIComponent(filename);
   const noExt = decoded.replace(/\.[^/.]+$/, "");
   
@@ -458,10 +458,28 @@ function parseMediaName(filename) {
   if (match) {
     const season = parseInt(match[1], 10);
     const episode = parseInt(match[2], 10);
+    
     // Extract title before the episode marker
-    const beforeEpisode = noExt.slice(0, match.index);
-    // Clean the title
-    const title = normalizeTitle(beforeEpisode);
+    let title = normalizeTitle(noExt.slice(0, match.index));
+    
+    // If we have a path and the title from filename is poor, try extracting from path
+    // Pattern: /ShowName/S01/ or /ShowName/Season 1/
+    if (fullPath && (!title || title.length < 3)) {
+      const pathParts = fullPath.split('/').filter(p => p);
+      // Look for show name in path (usually 2-3 levels up from file)
+      for (let i = pathParts.length - 1; i >= 0; i--) {
+        const part = pathParts[i];
+        // Skip season folders and quality folders
+        if (!/^(s\d+|season|full\.hd|hd|1080p|720p|480p|bluray|webrip)/i.test(part)) {
+          const candidateTitle = normalizeTitle(part);
+          if (candidateTitle && candidateTitle.length >= 3) {
+            title = candidateTitle;
+            break;
+          }
+        }
+      }
+    }
+    
     return { kind: "episode", title, season, episode };
   }
 
@@ -592,13 +610,13 @@ function buildLibraryCandidates(fileEntries) {
     }
     seenUrls.add(urlKey);
 
-    const meta = parseMediaName(entry.name);
+    const meta = parseMediaName(entry.name, entry.path);
     if (meta.kind === "episode") {
-      const key = meta.showTitle.toLowerCase();
+      const key = meta.title.toLowerCase();
       if (!showMap.has(key)) {
         showMap.set(key, {
           key,
-          title: meta.showTitle,
+          title: meta.title,
           episodes: []
         });
       }
@@ -986,8 +1004,8 @@ export default function App() {
     try {
       const url = entry.url;
       if (!url || importedUrlSetRef.current.has(url)) return;
-      // Parse media info from filename
-      const info = parseMediaName(entry.name || entry.path || url);
+      // Parse media info from filename and path
+      const info = parseMediaName(entry.name || entry.path || url, entry.path || url);
       if (!info || !info.title) return;
 
       if (info.kind === "movie") {
