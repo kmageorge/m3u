@@ -22150,24 +22150,22 @@
                 if (exists) return prev;
                 return [...prev, entry];
               });
-            }
-            setLibraryProgress((prev) => {
-              if (!prev.active) return prev;
-              if (info.type === "dir") {
-                const message2 = `Scanning ${info.path}`;
-                const logs2 = [message2, ...prev.logs].slice(0, 6);
-                return { ...prev, logs: logs2, stage: "crawling" };
-              }
-              const message = `Found ${info.entry.path}`;
-              const logs = [message, ...prev.logs].slice(0, 6);
-              return {
+              setLibraryProgress((prev) => ({
                 ...prev,
                 processed: prev.processed + 1,
                 found: prev.found + 1,
-                logs,
+                logs: [`Found ${entry.path}`, ...prev.logs].slice(0, 6),
                 stage: "crawling"
-              };
-            });
+              }));
+              return;
+            }
+            if (info.type === "dir") {
+              setLibraryProgress((prev) => ({
+                ...prev,
+                logs: [`Scanning ${info.path}`, ...prev.logs].slice(0, 6),
+                stage: "crawling"
+              }));
+            }
           }
         });
         if (!files.length) {
