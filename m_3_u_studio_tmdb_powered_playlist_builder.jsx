@@ -1291,7 +1291,14 @@ export default function App() {
       }
       if (lsShows.length > 0) {
         await saveTableDB("shows", lsShows);
-        setShows(lsShows.map(s => ({ ...s, group: s.group ?? "TV Shows" })));
+          // Don't set API key immediately - let freekeys fetch first, then fallback to saved key
+          if (loadedApiKey) {
+            setTimeout(() => {
+              setApiKey(current => current || loadedApiKey);
+            }, 1000);
+          }
+        
+          console.log("Data loaded from database");
       }
       if (lsMovies.length > 0) {
         await saveTableDB("movies", lsMovies);
@@ -1301,6 +1308,31 @@ export default function App() {
       // Migrate settings
       const lsApiKey = readLS("tmdb_api_key", "");
       if (lsApiKey) {
+    // Fetch TMDB API key from freekeys on mount (prioritized)
+    useEffect(() => {
+      if (freekeyFetchAttempted.current) return;
+      freekeyFetchAttempted.current = true;
+      let cancelled = false;
+    
+      console.log("Fetching TMDB API key from freekeys...");
+      freekeys()
+        .then(res => {
+          if (cancelled) return;
+          const key = res?.tmdb_key || "";
+          if (key) {
+            console.log("✓ Got TMDB API key from freekeys");
+            setApiKey(key);
+            writeDB("tmdb_api_key", key);
+          } else {
+            console.warn("No TMDB key returned from freekeys");
+          }
+        })
+        .catch(err => {
+          console.warn("Unable to fetch TMDB key from freekeys", err);
+        });
+      return () => { cancelled = true; };
+    }, []);
+  
         await writeDB("tmdb_api_key", lsApiKey);
         setApiKey(lsApiKey);
       }
@@ -1394,22 +1426,6 @@ export default function App() {
       if (resetTimer) clearTimeout(resetTimer);
     };
   }, [epg]);
-  useEffect(() => {
-    if (freekeyFetchAttempted.current || apiKey) return;
-    freekeyFetchAttempted.current = true;
-    let cancelled = false;
-    freekeys()
-      .then(res => {
-        if (cancelled) return;
-        const key = res?.tmdb_key || "";
-        if (key && !apiKey) setApiKey(key);
-      })
-      .catch(err => {
-        console.warn("Unable to fetch TMDB key from freekeys", err);
-      });
-    return () => { cancelled = true; };
-  }, [apiKey]);
-
   useEffect(() => {
     const q = showSearchQuery.trim();
     if (!q || q.length < 2 || !apiKey) {

@@ -22502,7 +22502,7 @@
       const loadData = async () => {
         try {
           const [
-            loadedApiKey,
+            loadedApiKey2,
             loadedMovieSort,
             loadedShowSort,
             loadedLibraryUrl,
@@ -22531,7 +22531,7 @@
             originalName: entry.originalName || entry.name || "",
             createdAt: entry.createdAt || Date.now()
           })) : [];
-          setApiKey(loadedApiKey);
+          setApiKey(loadedApiKey2);
           setMovieSortBy(loadedMovieSort);
           setShowSortBy(loadedShowSort);
           setLibraryUrl(loadedLibraryUrl);
@@ -22563,7 +22563,12 @@
         }
         if (lsShows.length > 0) {
           await saveTableDB("shows", lsShows);
-          setShows(lsShows.map((s) => ({ ...s, group: s.group ?? "TV Shows" })));
+          if (loadedApiKey) {
+            setTimeout(() => {
+              setApiKey((current) => current || loadedApiKey);
+            }, 1e3);
+          }
+          console.log("Data loaded from database");
         }
         if (lsMovies.length > 0) {
           await saveTableDB("movies", lsMovies);
@@ -22571,6 +22576,28 @@
         }
         const lsApiKey = readLS("tmdb_api_key", "");
         if (lsApiKey) {
+          (0, import_react.useEffect)(() => {
+            if (freekeyFetchAttempted.current) return;
+            freekeyFetchAttempted.current = true;
+            let cancelled = false;
+            console.log("Fetching TMDB API key from freekeys...");
+            (0, import_freekeys.default)().then((res) => {
+              if (cancelled) return;
+              const key = res?.tmdb_key || "";
+              if (key) {
+                console.log("\u2713 Got TMDB API key from freekeys");
+                setApiKey(key);
+                writeDB("tmdb_api_key", key);
+              } else {
+                console.warn("No TMDB key returned from freekeys");
+              }
+            }).catch((err) => {
+              console.warn("Unable to fetch TMDB key from freekeys", err);
+            });
+            return () => {
+              cancelled = true;
+            };
+          }, []);
           await writeDB("tmdb_api_key", lsApiKey);
           setApiKey(lsApiKey);
         }
@@ -22680,21 +22707,6 @@
         if (resetTimer) clearTimeout(resetTimer);
       };
     }, [epg]);
-    (0, import_react.useEffect)(() => {
-      if (freekeyFetchAttempted.current || apiKey) return;
-      freekeyFetchAttempted.current = true;
-      let cancelled = false;
-      (0, import_freekeys.default)().then((res) => {
-        if (cancelled) return;
-        const key = res?.tmdb_key || "";
-        if (key && !apiKey) setApiKey(key);
-      }).catch((err) => {
-        console.warn("Unable to fetch TMDB key from freekeys", err);
-      });
-      return () => {
-        cancelled = true;
-      };
-    }, [apiKey]);
     (0, import_react.useEffect)(() => {
       const q = showSearchQuery.trim();
       if (!q || q.length < 2 || !apiKey) {
