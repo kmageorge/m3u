@@ -23781,11 +23781,11 @@
       "\u{1F5D1}\uFE0F Delete (",
       selectedMovies.size,
       ")"
-    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, movies.filter((m) => {
+    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-2" }, movies.filter((m) => {
       if (!movieSearchFilter.trim()) return true;
       const search = movieSearchFilter.toLowerCase();
       return m.title?.toLowerCase().includes(search);
-    }).map((movie) => /* @__PURE__ */ import_react.default.createElement("div", { key: movie.id, className: "rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ import_react.default.createElement(
+    }).map((movie) => /* @__PURE__ */ import_react.default.createElement("div", { key: movie.id, className: "rounded-lg border border-white/10 bg-slate-800/40 p-3 hover:border-aurora/30 transition-all" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-3" }, /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         type: "checkbox",
@@ -23799,47 +23799,47 @@
           }
           setSelectedMovies(newSelected);
         },
-        className: "mt-1 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+        className: "mt-0.5 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50 flex-shrink-0"
       }
-    ), movie.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: movie.poster, alt: "", className: "w-16 h-24 rounded-lg object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-16 h-24 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-2xl flex-shrink-0" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-3" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-lg font-bold text-white" }, movie.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-1 flex gap-3" }, /* @__PURE__ */ import_react.default.createElement("span", null, "TMDB #", movie.tmdbId), /* @__PURE__ */ import_react.default.createElement("span", { className: movie.url ? "text-green-400" : "text-yellow-400" }, movie.url ? "\u{1F517} URL set" : "\u26A0\uFE0F No URL"))), /* @__PURE__ */ import_react.default.createElement(
+    ), movie.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: movie.poster, alt: "", className: "w-12 h-16 rounded object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-12 h-16 rounded border border-dashed border-white/10 flex items-center justify-center text-xl flex-shrink-0" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-2 min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-bold text-white truncate" }, movie.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-0.5 flex gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "truncate" }, "TMDB #", movie.tmdbId), /* @__PURE__ */ import_react.default.createElement("span", { className: movie.url ? "text-green-400" : "text-yellow-400" }, movie.url ? "\u{1F517}" : "\u26A0\uFE0F"))), /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
-        className: "text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0",
+        className: "text-xs px-2 py-1 rounded text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0",
         onClick: () => {
           if (window.confirm(`Delete "${movie.title}"?`)) {
             setMovies((ms) => ms.filter((m) => m.id !== movie.id));
           }
         }
       },
-      "\u{1F5D1}\uFE0F Remove"
-    )), movie.overview && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-2 line-clamp-2" }, movie.overview)), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "Stream URL"), /* @__PURE__ */ import_react.default.createElement(
+      "\u{1F5D1}\uFE0F"
+    )), movie.overview && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 mt-1 line-clamp-1" }, movie.overview)), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-medium text-slate-400 mb-1" }, "Stream URL"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
-        className: inputClass,
+        className: `${inputClass} py-1.5 text-sm`,
         placeholder: "https://cdn.example.com/movies/movie.mp4",
         value: movie.url || "",
         onChange: (e) => setMoviePatch(movie.id, { url: e.target.value })
       }
-    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-3 items-center" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "text-xs text-slate-400 font-semibold" }, "Group:"), /* @__PURE__ */ import_react.default.createElement(
+    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2 items-center" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "text-xs text-slate-400 font-medium" }, "Group:"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
-        className: `${inputClass} flex-1 max-w-xs py-2 text-sm`,
-        placeholder: "e.g., Movies, Films, VOD",
+        className: `${inputClass} flex-1 max-w-xs py-1 text-xs`,
+        placeholder: "e.g., Movies",
         value: movie.group || "",
         onChange: (e) => setMoviePatch(movie.id, { group: e.target.value })
       }
-    )), /* @__PURE__ */ import_react.default.createElement("details", null, /* @__PURE__ */ import_react.default.createElement("summary", { className: "cursor-pointer text-sm font-semibold text-slate-300 hover:text-white flex items-center gap-2" }, "\u2699\uFE0F Advanced Settings"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 space-y-3 p-4 rounded-lg bg-slate-900/60 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "Poster URL"), /* @__PURE__ */ import_react.default.createElement(
+    )), /* @__PURE__ */ import_react.default.createElement("details", null, /* @__PURE__ */ import_react.default.createElement("summary", { className: "cursor-pointer text-xs font-medium text-slate-300 hover:text-white flex items-center gap-1.5" }, "\u2699\uFE0F Advanced"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 space-y-2 p-3 rounded-lg bg-slate-900/60 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-medium text-slate-400 mb-1" }, "Poster URL"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
-        className: inputClass,
+        className: `${inputClass} py-1.5 text-sm`,
         placeholder: "https://image.tmdb.org/t/p/w342/...",
         value: movie.poster || "",
         onChange: (e) => setMoviePatch(movie.id, { poster: e.target.value })
       }
-    )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "Overview/Description"), /* @__PURE__ */ import_react.default.createElement(
+    )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-medium text-slate-400 mb-1" }, "Overview/Description"), /* @__PURE__ */ import_react.default.createElement(
       "textarea",
       {
-        className: textareaClass,
+        className: `${textareaClass} min-h-[80px] text-sm`,
         placeholder: "Movie description...",
         value: movie.overview || "",
         onChange: (e) => setMoviePatch(movie.id, { overview: e.target.value })
