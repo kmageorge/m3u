@@ -40,6 +40,82 @@ const pad = (n, len = 2) => String(n).padStart(len, "0");
 const sanitize = (s) => (s ?? "").toString().replace(/\n/g, " ").trim();
 
 // LocalStorage helpers
+// ---------- Database API helpers ----------
+const dbCache = new Map(); // In-memory cache for settings
+
+const readDB = async (key, fallback) => {
+  try {
+    // Check cache first
+    if (dbCache.has(key)) {
+      return dbCache.get(key);
+    }
+    
+    const response = await fetch(`/api/db/settings/${encodeURIComponent(key)}`);
+    if (!response.ok) {
+      console.warn(`Failed to read ${key} from database`);
+      return fallback;
+    }
+    const data = await response.json();
+    const value = data.value ? JSON.parse(data.value) : fallback;
+    dbCache.set(key, value);
+    return value;
+  } catch (err) {
+    console.warn("Database read failed:", err);
+    return fallback;
+  }
+};
+
+const writeDB = async (key, value) => {
+  try {
+    dbCache.set(key, value);
+    const response = await fetch(`/api/db/settings/${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value })
+    });
+    if (!response.ok) {
+      console.warn(`Failed to write ${key} to database`);
+    }
+  } catch (err) {
+    console.warn("Database write failed:", err);
+  }
+};
+
+const saveDB = writeDB; // Alias for compatibility
+
+// Load table data from database
+const loadTableDB = async (table) => {
+  try {
+    const response = await fetch(`/api/db/${table}`);
+    if (!response.ok) {
+      console.warn(`Failed to load ${table} from database`);
+      return [];
+    }
+    const data = await response.json();
+    return data.items || [];
+  } catch (err) {
+    console.warn(`Database load ${table} failed:`, err);
+    return [];
+  }
+};
+
+// Save table data to database
+const saveTableDB = async (table, items) => {
+  try {
+    const response = await fetch(`/api/db/${table}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items })
+    });
+    if (!response.ok) {
+      console.warn(`Failed to save ${table} to database`);
+    }
+  } catch (err) {
+    console.warn(`Database save ${table} failed:`, err);
+  }
+};
+
+// Legacy localStorage fallback for initial migration
 const readLS = (key, fallback) => {
   try {
     const stored = localStorage.getItem(key);
@@ -50,11 +126,7 @@ const readLS = (key, fallback) => {
 };
 
 const writeLS = (key, value) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (err) {
-    console.warn("localStorage write failed:", err);
-  }
+  // No-op now, we use database
 };
 
 const saveLS = writeLS; // Alias for compatibility
@@ -866,7 +938,7 @@ class ErrorBoundary extends React.Component {
 
 // ---------- Main App ----------
 export default function App() {
-  const [apiKey, setApiKey] = useState(readLS("tmdb_api_key", ""));
+  const [apiKey, setApiKey] = useState("");
   const freekeyFetchAttempted = useRef(false);
   const [active, setActive] = useState("dashboard");
   
@@ -902,12 +974,12 @@ export default function App() {
   const [selectedMovies, setSelectedMovies] = useState(new Set());
   
   // EPG states
-  const [epgSources, setEpgSources] = useState(() => readLS("m3u_epg_sources", []));
+  const [epgSources, setEpgSources] = useState([]);
   const [selectedEpgSources, setSelectedEpgSources] = useState(new Set());
-  const [epgMappings, setEpgMappings] = useState(() => readLS("m3u_epg_mappings", {}));
+  const [epgMappings, setEpgMappings] = useState({});
   const [autoMapStatus, setAutoMapStatus] = useState({ active: false, matched: 0, total: 0 });
 
-  const [channels, setChannels] = useState(() => readLS("m3u_channels", []));
+  const [channels, setChannels] = useState([]);
   const [channelLogoQuery, setChannelLogoQuery] = useState("");
   const [channelLogoLoading, setChannelLogoLoading] = useState(false);
   const [channelLogoResults, setChannelLogoResults] = useState([]);
@@ -919,19 +991,10 @@ export default function App() {
     skipped: 0,
     message: ""
   });
-  const [channelImports, setChannelImports] = useState(() => {
-    const raw = readLS("m3u_channel_imports", []);
-    if (!Array.isArray(raw)) return [];
-    return raw.map(entry => ({
-      id: entry.id || `import-${Math.random().toString(36).slice(2)}`,
-      name: entry.name || entry.originalName || "Imported playlist",
-      originalName: entry.originalName || entry.name || "",
-      createdAt: entry.createdAt || Date.now()
-    }));
-  });
+  const [channelImports, setChannelImports] = useState([]);
   const channelImportInputRef = useRef(null);
-  const [shows, setShows] = useState(() => readLS("m3u_shows", []).map(s => ({ ...s, group: s.group ?? "TV Shows" })));
-  const [movies, setMovies] = useState(() => readLS("m3u_movies", []).map(m => ({ ...m, group: m.group ?? "Movies" })));
+  const [shows, setShows] = useState([]);
+  const [movies, setMovies] = useState([]);
   const [showSearchQuery, setShowSearchQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState([]);
   const [showSearchBusy, setShowSearchBusy] = useState(false);
@@ -940,8 +1003,8 @@ export default function App() {
   const [movieSuggestions, setMovieSuggestions] = useState([]);
   const [movieSearchBusy, setMovieSearchBusy] = useState(false);
   const movieSearchRun = useRef(0);
-  const [libraryUrl, setLibraryUrl] = useState(() => readLS("m3u_library_url", ""));
-  const [scanSubfolders, setScanSubfolders] = useState(() => readLS("m3u_scan_subfolders", true));
+  const [libraryUrl, setLibraryUrl] = useState("");
+  const [scanSubfolders, setScanSubfolders] = useState(true);
   const [availableFolders, setAvailableFolders] = useState([]);
   const [selectedFolders, setSelectedFolders] = useState(new Set());
   const [loadingFolders, setLoadingFolders] = useState(false);
@@ -1147,18 +1210,121 @@ export default function App() {
     });
     setLibraryDuplicates(libraryCandidates.duplicates);
   }, [libraryCandidates]);
-  useEffect(() => saveLS("tmdb_api_key", apiKey), [apiKey]);
-  useEffect(() => saveLS("m3u_channels", channels), [channels]);
-  useEffect(() => saveLS("m3u_channel_imports", channelImports), [channelImports]);
-  useEffect(() => saveLS("m3u_shows", shows), [shows]);
-  useEffect(() => saveLS("m3u_movies", movies), [movies]);
-  useEffect(() => saveLS("m3u_movie_sort", movieSortBy), [movieSortBy]);
-  useEffect(() => saveLS("m3u_show_sort", showSortBy), [showSortBy]);
-  useEffect(() => saveLS("m3u_library_url", libraryUrl), [libraryUrl]);
-  useEffect(() => saveLS("m3u_scan_subfolders", scanSubfolders), [scanSubfolders]);
-  useEffect(() => saveLS("m3u_epg_sources", epgSources), [epgSources]);
-  useEffect(() => saveLS("m3u_epg_mappings", epgMappings), [epgMappings]);
-  useEffect(() => saveLS("m3u_stream_health", streamHealthStatus), [streamHealthStatus]);
+  
+  // Load data from database on mount
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        // Load settings
+        const [
+          loadedApiKey,
+          loadedMovieSort,
+          loadedShowSort,
+          loadedLibraryUrl,
+          loadedScanSubfolders,
+          loadedEpgMappings,
+          loadedStreamHealth
+        ] = await Promise.all([
+          readDB("tmdb_api_key", ""),
+          readDB("m3u_movie_sort", "added"),
+          readDB("m3u_show_sort", "added"),
+          readDB("m3u_library_url", ""),
+          readDB("m3u_scan_subfolders", true),
+          readDB("m3u_epg_mappings", {}),
+          readDB("m3u_stream_health", {})
+        ]);
+        
+        // Load table data
+        const [loadedChannels, loadedShows, loadedMovies] = await Promise.all([
+          loadTableDB("channels"),
+          loadTableDB("shows"),
+          loadTableDB("movies")
+        ]);
+        
+        // Load EPG sources and channel imports from settings
+        const loadedEpgSources = await readDB("m3u_epg_sources", []);
+        const rawChannelImports = await readDB("m3u_channel_imports", []);
+        const loadedChannelImports = Array.isArray(rawChannelImports) ? rawChannelImports.map(entry => ({
+          id: entry.id || `import-${Math.random().toString(36).slice(2)}`,
+          name: entry.name || entry.originalName || "Imported playlist",
+          originalName: entry.originalName || entry.name || "",
+          createdAt: entry.createdAt || Date.now()
+        })) : [];
+        
+        // Set all state
+        setApiKey(loadedApiKey);
+        setMovieSortBy(loadedMovieSort);
+        setShowSortBy(loadedShowSort);
+        setLibraryUrl(loadedLibraryUrl);
+        setScanSubfolders(loadedScanSubfolders);
+        setEpgMappings(loadedEpgMappings);
+        setStreamHealthStatus(loadedStreamHealth);
+        setEpgSources(loadedEpgSources);
+        setChannelImports(loadedChannelImports);
+        
+        setChannels(loadedChannels);
+        setShows(loadedShows.map(s => ({ ...s, group: s.group ?? "TV Shows" })));
+        setMovies(loadedMovies.map(m => ({ ...m, group: m.group ?? "Movies" })));
+        
+        console.log("Data loaded from database");
+      } catch (err) {
+        console.error("Failed to load data from database:", err);
+        // Try to migrate from localStorage as fallback
+        migrateFromLocalStorage();
+      }
+    };
+    
+    loadData();
+  }, []); // Run once on mount
+  
+  // Migrate from localStorage to database (one-time migration)
+  const migrateFromLocalStorage = async () => {
+    try {
+      console.log("Attempting to migrate from localStorage...");
+      const lsChannels = readLS("m3u_channels", []);
+      const lsShows = readLS("m3u_shows", []);
+      const lsMovies = readLS("m3u_movies", []);
+      
+      if (lsChannels.length > 0) {
+        await saveTableDB("channels", lsChannels);
+        setChannels(lsChannels);
+      }
+      if (lsShows.length > 0) {
+        await saveTableDB("shows", lsShows);
+        setShows(lsShows.map(s => ({ ...s, group: s.group ?? "TV Shows" })));
+      }
+      if (lsMovies.length > 0) {
+        await saveTableDB("movies", lsMovies);
+        setMovies(lsMovies.map(m => ({ ...m, group: m.group ?? "Movies" })));
+      }
+      
+      // Migrate settings
+      const lsApiKey = readLS("tmdb_api_key", "");
+      if (lsApiKey) {
+        await writeDB("tmdb_api_key", lsApiKey);
+        setApiKey(lsApiKey);
+      }
+      
+      console.log("Migration from localStorage complete");
+    } catch (err) {
+      console.error("Migration failed:", err);
+    }
+  };
+  
+  // Save to database when data changes
+  useEffect(() => { if (apiKey) writeDB("tmdb_api_key", apiKey); }, [apiKey]);
+  useEffect(() => { if (channels.length > 0) saveTableDB("channels", channels); }, [channels]);
+  useEffect(() => { if (channelImports.length >= 0) writeDB("m3u_channel_imports", channelImports); }, [channelImports]);
+  useEffect(() => { if (shows.length > 0) saveTableDB("shows", shows); }, [shows]);
+  useEffect(() => { if (movies.length > 0) saveTableDB("movies", movies); }, [movies]);
+  useEffect(() => { writeDB("m3u_movie_sort", movieSortBy); }, [movieSortBy]);
+  useEffect(() => { writeDB("m3u_show_sort", showSortBy); }, [showSortBy]);
+  useEffect(() => { if (libraryUrl) writeDB("m3u_library_url", libraryUrl); }, [libraryUrl]);
+  useEffect(() => { writeDB("m3u_scan_subfolders", scanSubfolders); }, [scanSubfolders]);
+  useEffect(() => { if (epgSources.length >= 0) writeDB("m3u_epg_sources", epgSources); }, [epgSources]);
+  useEffect(() => { writeDB("m3u_epg_mappings", epgMappings); }, [epgMappings]);
+  useEffect(() => { writeDB("m3u_stream_health", streamHealthStatus); }, [streamHealthStatus]);
+  
   const [epgSyncStatus, setEpgSyncStatus] = useState("idle");
   const epgUrl = useMemo(() => {
     if (typeof window === "undefined") return "";

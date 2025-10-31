@@ -1,5 +1,6 @@
 const path = require("path");
 const express = require("express");
+const sqlite3 = require("sqlite3").verbose();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -8,7 +9,178 @@ const BING_IMAGE_API_KEY = process.env.BING_IMAGE_API_KEY || "";
 let latestPlaylist = "#EXTM3U";
 let latestEpg = '<?xml version="1.0" encoding="UTF-8"?>\n<tv></tv>';
 
+// Initialize SQLite database
+const db = new sqlite3.Database('./m3u_studio.db', (err) => {
+  if (err) {
+    console.error('Error opening database:', err);
+  } else {
+    console.log('Connected to SQLite database');
+    initializeDatabase();
+  }
+});
+
+// Create tables if they don't exist
+function initializeDatabase() {
+  db.serialize(() => {
+    // Settings table for key-value storage
+    db.run(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Channels table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS channels (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Shows table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS shows (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Movies table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS movies (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    console.log('Database tables initialized');
+  });
+}
+
 app.use(express.static(path.resolve(__dirname)));
+app.use(express.json({ limit: "10mb" }));
+
+// Database API endpoints
+
+// Get a setting by key
+app.get("/api/db/settings/:key", (req, res) => {
+  db.get("SELECT value FROM settings WHERE key = ?", [req.params.key], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    res.json({ value: row ? row.value : null });
+  });
+});
+
+// Set a setting
+app.post("/api/db/settings/:key", (req, res) => {
+  const { value } = req.body;
+  db.run(
+    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+    [req.params.key, JSON.stringify(value)],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ ok: true });
+    }
+  );
+});
+
+// Get all items from a table (channels, shows, or movies)
+app.get("/api/db/:table", (req, res) => {
+  const table = req.params.table;
+  if (!['channels', 'shows', 'movies'].includes(table)) {
+    return res.status(400).json({ error: "Invalid table" });
+  }
+  
+  db.all(`SELECT id, data FROM ${table}`, [], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    const items = rows.map(row => JSON.parse(row.data));
+    res.json({ items });
+  });
+});
+
+// Save all items to a table (replaces all data)
+app.post("/api/db/:table", (req, res) => {
+  const table = req.params.table;
+  if (!['channels', 'shows', 'movies'].includes(table)) {
+    return res.status(400).json({ error: "Invalid table" });
+  }
+  
+  const { items } = req.body;
+  if (!Array.isArray(items)) {
+    return res.status(400).json({ error: "Items must be an array" });
+  }
+
+  db.serialize(() => {
+    db.run("BEGIN TRANSACTION");
+    db.run(`DELETE FROM ${table}`);
+    
+    const stmt = db.prepare(`INSERT INTO ${table} (id, data, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`);
+    items.forEach(item => {
+      stmt.run([item.id, JSON.stringify(item)]);
+    });
+    stmt.finalize();
+    
+    db.run("COMMIT", (err) => {
+      if (err) {
+        db.run("ROLLBACK");
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ ok: true, count: items.length });
+    });
+  });
+});
+
+// Add a single item
+app.post("/api/db/:table/add", (req, res) => {
+  const table = req.params.table;
+  if (!['channels', 'shows', 'movies'].includes(table)) {
+    return res.status(400).json({ error: "Invalid table" });
+  }
+  
+  const { item } = req.body;
+  if (!item || !item.id) {
+    return res.status(400).json({ error: "Item with id required" });
+  }
+
+  db.run(
+    `INSERT OR REPLACE INTO ${table} (id, data, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
+    [item.id, JSON.stringify(item)],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ ok: true });
+    }
+  );
+});
+
+// Delete an item
+app.delete("/api/db/:table/:id", (req, res) => {
+  const table = req.params.table;
+  if (!['channels', 'shows', 'movies'].includes(table)) {
+    return res.status(400).json({ error: "Invalid table" });
+  }
+  
+  db.run(`DELETE FROM ${table} WHERE id = ?`, [req.params.id], (err) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    res.json({ ok: true });
+  });
+});
 
 app.get("/proxy", async (req, res) => {
   const target = req.query.url;
