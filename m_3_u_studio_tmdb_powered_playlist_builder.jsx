@@ -382,8 +382,17 @@ async function crawlDirectory(baseUrl, options = {}) {
 function buildLibraryCandidates(fileEntries) {
   const movieMap = new Map();
   const showMap = new Map();
+  const duplicates = [];
+  const seenUrls = new Set();
 
   fileEntries.forEach(entry => {
+    const urlKey = (entry.url || entry.path || "").toLowerCase();
+    if (seenUrls.has(urlKey)) {
+      duplicates.push(entry);
+      return;
+    }
+    seenUrls.add(urlKey);
+
     const meta = parseMediaName(entry.name);
     if (meta.kind === "episode") {
       const key = meta.showTitle.toLowerCase();
@@ -423,7 +432,7 @@ function buildLibraryCandidates(fileEntries) {
   const movies = Array.from(movieMap.values()).sort((a, b) => a.title.localeCompare(b.title));
   const shows = Array.from(showMap.values()).sort((a, b) => a.title.localeCompare(b.title));
 
-  return { movies, shows };
+  return { movies, shows, duplicates };
 }
 
 
@@ -514,6 +523,7 @@ export default function App() {
   const [libraryMovies, setLibraryMovies] = useState([]);
   const [libraryShows, setLibraryShows] = useState([]);
   const [libraryProgress, setLibraryProgress] = useState({ active: false, processed: 0, found: 0, logs: [], stage: "idle" });
+  const [libraryDuplicates, setLibraryDuplicates] = useState([]);
   const [playlistSyncStatus, setPlaylistSyncStatus] = useState("idle");
   const playlistUrl = useMemo(() => {
     if (typeof window === "undefined") return "/playlist.m3u";
@@ -654,6 +664,7 @@ export default function App() {
     setLibraryError("");
     setLibraryMovies([]);
     setLibraryShows([]);
+    setLibraryDuplicates([]);
     setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling" });
     try {
       const files = await crawlDirectory(url, {
@@ -687,6 +698,7 @@ export default function App() {
       const candidates = buildLibraryCandidates(files);
       setLibraryMovies(candidates.movies.map(m => ({ ...m, suggestions: [], loading: false, error: "" })));
       setLibraryShows(candidates.shows.map(s => ({ ...s, suggestions: [], loading: false, error: "" })));
+      setLibraryDuplicates(candidates.duplicates);
       setLibraryProgress(prev => ({ ...prev, active: false, stage: "completed" }));
     } catch (err) {
       console.warn(err);
@@ -914,6 +926,25 @@ export default function App() {
                       ))}
                     </div>
                   )}
+                </div>
+              </Card>
+            )}
+
+            {libraryDuplicates.length > 0 && (
+              <Card>
+                <div className="flex flex-col gap-3">
+                  <SectionTitle>Duplicate streams detected ({libraryDuplicates.length})</SectionTitle>
+                  <p className="text-xs text-slate-400">Duplicates are ignored for TMDB matching. Review and remove if needed.</p>
+                  <div className="space-y-1 text-xs text-slate-400 max-h-40 overflow-y-auto">
+                    {libraryDuplicates.slice(0, 20).map((dup, idx) => (
+                      <div key={`${dup.path}-${idx}`} className="truncate">
+                        {dup.path}
+                      </div>
+                    ))}
+                    {libraryDuplicates.length > 20 && (
+                      <div className="text-xs text-slate-500">…and {libraryDuplicates.length - 20} more</div>
+                    )}
+                  </div>
                 </div>
               </Card>
             )}
