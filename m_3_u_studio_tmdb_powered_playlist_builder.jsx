@@ -516,7 +516,6 @@ export default function App() {
   const secondaryButton = `${baseButton} border border-white/10 bg-slate-900/70 text-slate-200 focus:ring-aurora/30 hover:border-aurora/40 hover:text-white`;
   const ghostButton = `${baseButton} border border-white/10 text-slate-200 bg-transparent focus:ring-aurora/30 hover:border-aurora/50 hover:text-white`;
   const dangerButton = `${baseButton} border border-red-500/40 text-red-200 bg-red-500/10 focus:ring-red-400/50 hover:bg-red-500/20`;
-
   useEffect(() => saveLS("tmdb_api_key", apiKey), [apiKey]);
   useEffect(() => saveLS("m3u_channels", channels), [channels]);
   useEffect(() => saveLS("m3u_shows", shows), [shows]);
