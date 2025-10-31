@@ -496,13 +496,18 @@ export default function App() {
   const [movieSuggestions, setMovieSuggestions] = useState([]);
   const [movieSearchBusy, setMovieSearchBusy] = useState(false);
   const movieSearchRun = useRef(0);
-const [libraryUrl, setLibraryUrl] = useState(() => readLS("m3u_library_url", ""));
-const [libraryLoading, setLibraryLoading] = useState(false);
-const [libraryError, setLibraryError] = useState("");
-const [libraryMovies, setLibraryMovies] = useState([]);
-const [libraryShows, setLibraryShows] = useState([]);
+  const [libraryUrl, setLibraryUrl] = useState(() => readLS("m3u_library_url", ""));
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryError, setLibraryError] = useState("");
+  const [libraryMovies, setLibraryMovies] = useState([]);
+  const [libraryShows, setLibraryShows] = useState([]);
   const [libraryProgress, setLibraryProgress] = useState({ active: false, processed: 0, found: 0, logs: [], stage: "idle" });
   const [libraryDeepScan, setLibraryDeepScan] = useState(false);
+  const [playlistSyncStatus, setPlaylistSyncStatus] = useState("idle");
+  const playlistUrl = useMemo(() => {
+    if (typeof window === "undefined") return "/playlist.m3u";
+    return `${window.location.origin}/playlist.m3u`;
+  }, []);
 
   const inputClass = "w-full px-4 py-3 rounded-2xl border border-white/10 bg-slate-900/70 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-aurora/60 focus:border-transparent transition";
   const textareaClass = `${inputClass} min-h-[140px] leading-relaxed`;
@@ -517,6 +522,38 @@ const [libraryShows, setLibraryShows] = useState([]);
   useEffect(() => saveLS("m3u_shows", shows), [shows]);
   useEffect(() => saveLS("m3u_movies", movies), [movies]);
   useEffect(() => saveLS("m3u_library_url", libraryUrl), [libraryUrl]);
+  useEffect(() => {
+    if (!m3u) return;
+    let cancelled = false;
+    let resetTimer;
+    const debounce = setTimeout(() => {
+      setPlaylistSyncStatus("syncing");
+      fetch("/api/playlist", {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8"
+        },
+        body: m3u
+      })
+        .then(res => {
+          if (!res.ok) throw new Error(`sync failed (${res.status})`);
+          if (cancelled) return;
+          setPlaylistSyncStatus("saved");
+          resetTimer = setTimeout(() => {
+            if (!cancelled) setPlaylistSyncStatus("idle");
+          }, 2000);
+        })
+        .catch(err => {
+          console.warn("Unable to sync playlist", err);
+          if (!cancelled) setPlaylistSyncStatus("error");
+        });
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(debounce);
+      if (resetTimer) clearTimeout(resetTimer);
+    };
+  }, [m3u]);
   useEffect(() => {
     if (freekeyFetchAttempted.current || apiKey) return;
     freekeyFetchAttempted.current = true;
@@ -1361,6 +1398,19 @@ const [libraryShows, setLibraryShows] = useState([]);
               <div className="flex flex-wrap gap-3">
                 <button className={primaryButton} onClick={()=>downloadText("playlist.m3u", m3u)}>Download .m3u</button>
                 <button className={ghostButton} onClick={()=>navigator.clipboard.writeText(m3u)}>Copy</button>
+              </div>
+            </div>
+            <div className="mt-4 space-y-2">
+              <div className="text-xs uppercase tracking-wide text-slate-400">Hosted playlist URL</div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <input className={`${inputClass} sm:flex-1`} readOnly value={playlistUrl} />
+                <button className={secondaryButton} onClick={()=>navigator.clipboard.writeText(playlistUrl)}>Copy URL</button>
+              </div>
+              <div className="text-xs text-slate-500">
+                {playlistSyncStatus === "syncing" && "Uploading latest playlist…"}
+                {playlistSyncStatus === "saved" && "Playlist synced. Use this URL in any IPTV player."}
+                {playlistSyncStatus === "error" && "Sync failed — the download button still gives you a local file."}
+                {playlistSyncStatus === "idle" && "Playlist ready. Changes auto-sync to the URL above."}
               </div>
             </div>
             <textarea className={`${inputClass} h-96 font-mono text-sm`} value={m3u} onChange={()=>{}} />

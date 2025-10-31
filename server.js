@@ -4,6 +4,7 @@ const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const PROXY_TIMEOUT = Number(process.env.PROXY_TIMEOUT || 15000);
+let latestPlaylist = "#EXTM3U";
 
 app.use(express.static(path.resolve(__dirname)));
 
@@ -53,6 +54,21 @@ app.get("/proxy", async (req, res) => {
   } finally {
     clearTimeout(timeout);
   }
+});
+
+app.post("/api/playlist", express.text({ type: "*/*", limit: "10mb" }), (req, res) => {
+  const body = req.body ?? "";
+  if (!body.trim()) {
+    return res.status(400).json({ ok: false, message: "Playlist body required" });
+  }
+  latestPlaylist = body;
+  res.json({ ok: true });
+});
+
+app.get("/playlist.m3u", (req, res) => {
+  res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache");
+  res.send(latestPlaylist);
 });
 
 app.listen(PORT, () => {
