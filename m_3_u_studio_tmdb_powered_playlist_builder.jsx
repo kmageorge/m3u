@@ -845,7 +845,7 @@ export default function App() {
   const [movieSearchBusy, setMovieSearchBusy] = useState(false);
   const movieSearchRun = useRef(0);
   const [libraryUrl, setLibraryUrl] = useState(() => readLS("m3u_library_url", ""));
-  const [scanSubfolders, setScanSubfolders] = useState(() => readLS("m3u_scan_subfolders", false));
+  const [scanSubfolders, setScanSubfolders] = useState(() => readLS("m3u_scan_subfolders", true));
   const channelsByImport = useMemo(() => {
     const map = new Map();
     channels.forEach(ch => {
@@ -882,6 +882,137 @@ export default function App() {
   const epg = useMemo(() => buildEPG({ channels, shows, movies, epgMappings }), [channels, shows, movies, epgMappings]);
 
   const libraryCandidates = useMemo(() => buildLibraryCandidates(libraryFileEntries), [libraryFileEntries]);
+  // Live import helpers for library scanning
+  const importQueueRef = useRef([]);
+  const processingQueueRef = useRef(false);
+  const tmdbCacheRef = useRef({ movies: new Map(), shows: new Map() }); // normalizedTitle -> tmdbId
+  const importedUrlSetRef = useRef(new Set());
+
+  const mergeEpisodeIntoShow = useCallback((tmdbId, season, episode, url) => {
+    if (!url) return;
+    setShows(prev => prev.map(s => {
+      if (String(s.tmdbId) !== String(tmdbId)) return s;
+      const seasons = (s.seasons || []).map(sea => {
+        if (sea.season !== season) return sea;
+        const episodes = (sea.episodes || []).map(ep => {
+          if (ep.episode !== episode) return ep;
+          return { ...ep, url: ep.url || url };
+        });
+        return { ...sea, episodes };
+      });
+      return { ...s, seasons };
+    }));
+  }, [setShows]);
+
+  const processEntry = useCallback(async (entry) => {
+    try {
+      const url = entry.url;
+      if (!url || importedUrlSetRef.current.has(url)) return;
+      // Parse media info from filename
+      const info = parseMediaName(entry.name || entry.path || url);
+      if (!info || !info.title) return;
+
+      if (info.kind === "movie") {
+        // Duplicate by URL
+        const movieDup = movies.some(m => (m.url || "") === url);
+        if (movieDup) {
+          setLibraryProgress(prev => ({ ...prev, skipped: (prev.skipped || 0) + 1, logs: [
+            `Skipped duplicate movie: ${info.title}`,
+            ...prev.logs
+          ].slice(0, 8) }));
+          return;
+        }
+        const norm = normalizeTitle(info.title);
+        let tmdbId = tmdbCacheRef.current.movies.get(norm);
+        if (!tmdbId) {
+          const results = await searchTMDBMovies(apiKey, info.title);
+          if (!results || results.length === 0) {
+            setLibraryProgress(prev => ({ ...prev, skipped: (prev.skipped || 0) + 1, logs: [
+              `No TMDB match for movie: ${info.title}`,
+              ...prev.logs
+            ].slice(0, 8) }));
+            return;
+          }
+          tmdbId = String(results[0].id);
+          tmdbCacheRef.current.movies.set(norm, tmdbId);
+        }
+        await importMovie(tmdbId, { url, group: "Movies" });
+        importedUrlSetRef.current.add(url);
+        setLibraryProgress(prev => ({ ...prev, imported: (prev.imported || 0) + 1, logs: [
+          `✓ Imported movie: ${info.title}`,
+          ...prev.logs
+        ].slice(0, 8) }));
+        return;
+      }
+
+      if (info.kind === "episode") {
+        const { title, season, episode } = info;
+        const norm = normalizeTitle(title);
+        // Check if this episode URL is already present
+        const showDup = shows.some(s => s.seasons?.some(sea => sea.episodes?.some(ep => ep.url === url)));
+        if (showDup) {
+          setLibraryProgress(prev => ({ ...prev, skipped: (prev.skipped || 0) + 1, logs: [
+            `Skipped duplicate episode: ${title} S${pad(season)}E${pad(episode)}`,
+            ...prev.logs
+          ].slice(0, 8) }));
+          return;
+        }
+        let tmdbId = tmdbCacheRef.current.shows.get(norm);
+        if (!tmdbId) {
+          const results = await searchTMDBShows(apiKey, title);
+          if (!results || results.length === 0) {
+            setLibraryProgress(prev => ({ ...prev, skipped: (prev.skipped || 0) + 1, logs: [
+              `No TMDB match for show: ${title}`,
+              ...prev.logs
+            ].slice(0, 8) }));
+            return;
+          }
+          tmdbId = String(results[0].id);
+          tmdbCacheRef.current.shows.set(norm, tmdbId);
+        }
+        // If show already exists, merge episode; else import show with initial episode map
+        const hasShow = shows.some(s => String(s.tmdbId) === String(tmdbId));
+        if (hasShow) {
+          mergeEpisodeIntoShow(Number(season), Number(episode), Number(episode), url); // will be corrected below
+          // Correct parameter order
+          mergeEpisodeIntoShow(tmdbId, Number(season), Number(episode), url);
+          setLibraryProgress(prev => ({ ...prev, imported: (prev.imported || 0) + 1, logs: [
+            `✓ Linked episode: ${title} S${pad(season)}E${pad(episode)}`,
+            ...prev.logs
+          ].slice(0, 8) }));
+        } else {
+          const episodeMap = { [`${Number(season)}-${Number(episode)}`]: url };
+          await importShow(tmdbId, { episodeMap, group: "TV Shows" });
+          setLibraryProgress(prev => ({ ...prev, imported: (prev.imported || 0) + 1, logs: [
+            `✓ Imported show: ${title} (added S${pad(season)}E${pad(episode)})`,
+            ...prev.logs
+          ].slice(0, 8) }));
+        }
+        importedUrlSetRef.current.add(url);
+      }
+    } catch (err) {
+      console.warn("processEntry failed", entry?.url, err);
+      setLibraryProgress(prev => ({ ...prev, skipped: (prev.skipped || 0) + 1, logs: [
+        `Error importing: ${entry?.name || entry?.url}`,
+        ...prev.logs
+      ].slice(0, 8) }));
+    }
+  }, [apiKey, movies, shows, mergeEpisodeIntoShow]);
+
+  const enqueueImport = useCallback((entry) => {
+    importQueueRef.current.push(entry);
+    if (processingQueueRef.current) return;
+    processingQueueRef.current = true;
+    (async () => {
+      while (importQueueRef.current.length) {
+        const next = importQueueRef.current.shift();
+        await processEntry(next);
+        // small throttle to avoid overwhelming APIs
+        await pause(200);
+      }
+      processingQueueRef.current = false;
+    })();
+  }, [processEntry]);
 
   useEffect(() => {
     setLibraryMovies(prev => {
@@ -1186,6 +1317,7 @@ export default function App() {
     setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling", imported: 0, skipped: 0 });
     
     try {
+      const importPromises = [];
       const files = await crawlDirectory(url, {
         maxDepth: scanSubfolders ? Number.POSITIVE_INFINITY : 0,
         throttleMs: 800,
@@ -1204,6 +1336,8 @@ export default function App() {
               logs: [`Found ${entry.path}`, ...prev.logs].slice(0, 6),
               stage: "crawling"
             }));
+            // Live import while scanning
+            importPromises.push((async () => enqueueImport(entry))());
             return;
           }
           if (info.type === "dir") {
@@ -1217,132 +1351,24 @@ export default function App() {
       });
       
       if (!files.length) {
-        setLibraryError("No playable media files detected at that URL.");
+        setLibraryError(scanSubfolders
+          ? "No playable media files detected at that URL."
+          : "No media files found in this directory. Try enabling 'Scan subfolders' to include nested folders.");
         setLibraryProgress(prev => ({ ...prev, active: false, stage: "empty" }));
         return;
       }
       
+      // Wait for any in-flight import tasks to finish
+      await Promise.allSettled(importPromises);
+
       const candidates = buildLibraryCandidates(files);
-      setLibraryProgress(prev => ({ ...prev, stage: "importing", logs: ["Starting auto-import with metadata..."] }));
-      
-      // Auto-import movies
-      let importedCount = 0;
-      let skippedCount = 0;
-      
-      for (const movie of candidates.movies) {
-        // Check for duplicate by URL
-        const isDuplicate = movies.some(m => m.url === movie.entries[0]?.url);
-        if (isDuplicate) {
-          skippedCount++;
-          setLibraryProgress(prev => ({
-            ...prev,
-            skipped: skippedCount,
-            logs: [`Skipped duplicate: ${movie.title}`, ...prev.logs].slice(0, 6)
-          }));
-          continue;
-        }
-        
-        try {
-          // Search TMDB
-          const results = await searchTMDBMovies(apiKey, movie.title);
-          if (results.length > 0) {
-            // Use best match (first result)
-            const match = results[0];
-            await importMovie(String(match.id), { 
-              url: movie.entries[0]?.url || "", 
-              group: "Movies" 
-            });
-            importedCount++;
-            setLibraryProgress(prev => ({
-              ...prev,
-              imported: importedCount,
-              logs: [`✓ Imported: ${match.title}`, ...prev.logs].slice(0, 6)
-            }));
-          } else {
-            skippedCount++;
-            setLibraryProgress(prev => ({
-              ...prev,
-              skipped: skippedCount,
-              logs: [`No metadata found: ${movie.title}`, ...prev.logs].slice(0, 6)
-            }));
-          }
-        } catch (err) {
-          console.warn(`Failed to import movie: ${movie.title}`, err);
-          skippedCount++;
-        }
-        
-        // Throttle to avoid rate limiting
-        await pause(300);
-      }
-      
-      // Auto-import TV shows
-      for (const show of candidates.shows) {
-        // Check for duplicate by episode URLs
-        const showUrls = show.episodes.map(ep => ep.url);
-        const isDuplicate = shows.some(s => 
-          s.seasons.some(sea => 
-            sea.episodes.some(ep => showUrls.includes(ep.url))
-          )
-        );
-        
-        if (isDuplicate) {
-          skippedCount++;
-          setLibraryProgress(prev => ({
-            ...prev,
-            skipped: skippedCount,
-            logs: [`Skipped duplicate show: ${show.title}`, ...prev.logs].slice(0, 6)
-          }));
-          continue;
-        }
-        
-        try {
-          // Search TMDB
-          const results = await searchTMDBShows(apiKey, show.title);
-          if (results.length > 0) {
-            // Use best match (first result)
-            const match = results[0];
-            const episodeMap = {};
-            show.episodes.forEach(ep => {
-              const key = `${ep.season}-${ep.episode}`;
-              if (!episodeMap[key]) episodeMap[key] = ep.url;
-            });
-            
-            await importShow(String(match.id), { 
-              episodeMap, 
-              group: "TV Shows" 
-            });
-            importedCount++;
-            setLibraryProgress(prev => ({
-              ...prev,
-              imported: importedCount,
-              logs: [`✓ Imported: ${match.title} (${Object.keys(episodeMap).length} episodes)`, ...prev.logs].slice(0, 6)
-            }));
-          } else {
-            skippedCount++;
-            setLibraryProgress(prev => ({
-              ...prev,
-              skipped: skippedCount,
-              logs: [`No metadata found: ${show.title}`, ...prev.logs].slice(0, 6)
-            }));
-          }
-        } catch (err) {
-          console.warn(`Failed to import show: ${show.title}`, err);
-          skippedCount++;
-        }
-        
-        // Throttle to avoid rate limiting
-        await pause(300);
-      }
-      
       setLibraryDuplicates(candidates.duplicates);
       setLibraryProgress(prev => ({ 
         ...prev, 
         active: false, 
         stage: "completed",
-        logs: [`✅ Complete: ${importedCount} imported, ${skippedCount} skipped`, ...prev.logs].slice(0, 6)
+        logs: ["✅ Scan complete", ...prev.logs].slice(0, 6)
       }));
-      
-      showToast(`Auto-import complete! ${importedCount} added, ${skippedCount} skipped (duplicates/no metadata)`, "success");
       
     } catch (err) {
       console.warn(err);
