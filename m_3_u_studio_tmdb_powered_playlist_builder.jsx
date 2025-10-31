@@ -556,6 +556,16 @@ export default function App() {
     skipped: 0,
     message: ""
   });
+  const [channelImports, setChannelImports] = useState(() => {
+    const raw = readLS("m3u_channel_imports", []);
+    if (!Array.isArray(raw)) return [];
+    return raw.map(entry => ({
+      id: entry.id || `import-${Math.random().toString(36).slice(2)}`,
+      name: entry.name || entry.originalName || "Imported playlist",
+      originalName: entry.originalName || entry.name || "",
+      createdAt: entry.createdAt || Date.now()
+    }));
+  });
   const channelImportInputRef = useRef(null);
   const [shows, setShows] = useState(() => readLS("m3u_shows", []).map(s => ({ ...s, group: s.group ?? "TV Shows" })));
   const [movies, setMovies] = useState(() => readLS("m3u_movies", []).map(m => ({ ...m, group: m.group ?? "Movies" })));
@@ -568,6 +578,18 @@ export default function App() {
   const [movieSearchBusy, setMovieSearchBusy] = useState(false);
   const movieSearchRun = useRef(0);
   const [libraryUrl, setLibraryUrl] = useState(() => readLS("m3u_library_url", ""));
+  const channelsByImport = useMemo(() => {
+    const map = new Map();
+    channels.forEach(ch => {
+      if (!ch?.importId) return;
+      if (!map.has(ch.importId)) map.set(ch.importId, []);
+      map.get(ch.importId).push(ch);
+    });
+    return map;
+  }, [channels]);
+  const sortedChannelImports = useMemo(() => {
+    return [...channelImports].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }, [channelImports]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryError, setLibraryError] = useState("");
   const [libraryMovies, setLibraryMovies] = useState([]);
@@ -628,6 +650,7 @@ export default function App() {
   }, [libraryCandidates]);
   useEffect(() => saveLS("tmdb_api_key", apiKey), [apiKey]);
   useEffect(() => saveLS("m3u_channels", channels), [channels]);
+  useEffect(() => saveLS("m3u_channel_imports", channelImports), [channelImports]);
   useEffect(() => saveLS("m3u_shows", shows), [shows]);
   useEffect(() => saveLS("m3u_movies", movies), [movies]);
   useEffect(() => saveLS("m3u_library_url", libraryUrl), [libraryUrl]);
@@ -776,6 +799,11 @@ export default function App() {
     }
     const existing = new Set(channels.map(c => (c.url || "").trim().toLowerCase()));
     const additions = [];
+    const importTimestamp = Date.now();
+    const importId = `import-${importTimestamp}`;
+    const nameFromFile = file.name ? file.name.replace(/\.[^/.]+$/, "") : "";
+    const importName = nameFromFile || `Playlist ${channelImports.length + 1}`;
+    const createdAt = importTimestamp;
     let added = 0;
     let skipped = 0;
     setChannelImportStatus({ active: true, total: parsed.length, added: 0, skipped: 0, message: "Importing channels…" });
@@ -791,7 +819,8 @@ export default function App() {
         logo = logos[0] || "";
       }
       additions.push({
-        id: `ch-${Date.now()}-${added}`,
+        id: `ch-${importTimestamp}-${added + 1}`,
+        importId,
         name: entry.name || `Channel ${channels.length + added + 1}`,
         url: normalizedUrl,
         logo,
@@ -808,6 +837,12 @@ export default function App() {
     }
     if (additions.length) {
       setChannels(prev => [...prev, ...additions]);
+      setChannelImports(prev => [...prev, {
+        id: importId,
+        name: importName,
+        originalName: file.name || "",
+        createdAt
+      }]);
     }
     setChannelImportStatus({
       active: false,
@@ -925,7 +960,27 @@ export default function App() {
   // ----- Channels -----
   const addChannel = () => setChannels(cs => [...cs, { id: `ch-${Date.now()}`, name: "New Channel", url: "", logo: "", group: "Live", chno: cs.length + 1 }]);
   const updateChannel = (idx, patch) => setChannels(cs => cs.map((c, i) => i === idx ? { ...c, ...patch } : c));
-  const removeChannel = (idx) => setChannels(cs => cs.filter((_, i) => i !== idx));
+  const removeChannel = (idx) => {
+    setChannels(cs => {
+      const target = cs[idx];
+      if (!target) return cs;
+      const next = cs.filter((_, i) => i !== idx);
+      if (target.importId) {
+        setChannelImports(prev => prev.filter(record => {
+          if (record.id !== target.importId) return true;
+          return next.some(ch => ch.importId === record.id);
+        }));
+      }
+      return next;
+    });
+  };
+  const renameChannelImport = (id, name) => {
+    setChannelImports(prev => prev.map(record => (record.id === id ? { ...record, name } : record)));
+  };
+  const removeChannelImport = (id) => {
+    setChannelImports(prev => prev.filter(record => record.id !== id));
+    setChannels(cs => cs.filter(ch => ch.importId !== id));
+  };
 
   // ----- TV Shows -----
   const importShow = async (tmdbId, options = {}) => {
@@ -1264,6 +1319,62 @@ export default function App() {
                     Added {channelImportStatus.added} · Skipped {channelImportStatus.skipped} · Total {channelImportStatus.total}
                   </div>
                 )}
+              </div>
+            )}
+            {sortedChannelImports.length > 0 && (
+              <div className="mt-6 rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-white">Imported playlists</div>
+                    <div className="text-xs text-slate-500">Rename, review, or delete uploads. Deleting removes their channels below.</div>
+                  </div>
+                  <div className="text-xs text-slate-500 sm:text-right">Total {sortedChannelImports.length}</div>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {sortedChannelImports.map(imp => {
+                    const linkedChannels = channelsByImport.get(imp.id) || [];
+                    const channelCount = linkedChannels.length;
+                    const importDate = imp.createdAt ? new Date(imp.createdAt).toLocaleString() : "";
+                    return (
+                      <div key={imp.id} className="rounded-xl border border-white/10 bg-slate-950/70 px-4 py-4">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="flex-1 space-y-2">
+                            <div>
+                              <label className="text-xs uppercase tracking-wide text-slate-500">Playlist name</label>
+                              <input
+                                className={`${inputClass} mt-1`}
+                                value={imp.name}
+                                onChange={(e)=>renameChannelImport(imp.id, e.target.value)}
+                                onBlur={(e)=>{
+                                  const next = e.target.value.trim();
+                                  const fallback = imp.originalName || "Imported playlist";
+                                  renameChannelImport(imp.id, next || fallback);
+                                }}
+                              />
+                            </div>
+                            <div className="text-xs text-slate-500 flex flex-wrap gap-3">
+                              <span>{channelCount} channel{channelCount === 1 ? "" : "s"}</span>
+                              {imp.originalName ? <span>File: {imp.originalName}</span> : null}
+                              {importDate ? <span>Imported: {importDate}</span> : null}
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-2 lg:items-end">
+                            <button
+                              className={dangerButton}
+                              onClick={()=>{
+                                if (window.confirm(`Delete "${imp.name || imp.originalName || "this playlist"}"? This removes ${channelCount} channel${channelCount === 1 ? "" : "s"}.`)) {
+                                  removeChannelImport(imp.id);
+                                }
+                              }}
+                            >
+                              Delete playlist
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
             {channels.length > 0 ? (
