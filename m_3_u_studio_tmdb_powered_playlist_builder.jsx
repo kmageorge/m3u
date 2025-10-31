@@ -572,7 +572,16 @@ const SectionTitle = ({ children, subtitle, badge }) => (
 export default function App() {
   const [apiKey, setApiKey] = useState(readLS("tmdb_api_key", ""));
   const freekeyFetchAttempted = useRef(false);
-  const [active, setActive] = useState("channels");
+  const [active, setActive] = useState("dashboard");
+  
+  // Search and filter states
+  const [channelSearchQuery, setChannelSearchQuery] = useState("");
+  const [channelGroupFilter, setChannelGroupFilter] = useState("all");
+  const [showSearchFilter, setShowSearchFilter] = useState("");
+  const [movieSearchFilter, setMovieSearchFilter] = useState("");
+  const [selectedChannels, setSelectedChannels] = useState(new Set());
+  const [selectedShows, setSelectedShows] = useState(new Set());
+  const [selectedMovies, setSelectedMovies] = useState(new Set());
 
   const [channels, setChannels] = useState(() => readLS("m3u_channels", []));
   const [channelLogoQuery, setChannelLogoQuery] = useState("");
@@ -1125,7 +1134,10 @@ export default function App() {
             </div>
           </div>
           <nav className="pb-4 flex gap-2 overflow-x-auto scrollbar-hide">
-            <TabBtn icon="📺" active={active === "channels"} onClick={()=>setActive("channels")}>
+            <TabBtn icon="�" active={active === "dashboard"} onClick={()=>setActive("dashboard")}>
+              Dashboard
+            </TabBtn>
+            <TabBtn icon="�📺" active={active === "channels"} onClick={()=>setActive("channels")}>
               Channels
               {channels.length > 0 && <span className="px-2 py-0.5 text-xs rounded-full bg-white/20">{channels.length}</span>}
             </TabBtn>
@@ -1148,6 +1160,235 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 space-y-8">
+        {active === "dashboard" && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-3xl font-bold text-white">Dashboard</h2>
+                <p className="text-slate-400 mt-1">Overview of your IPTV management system</p>
+              </div>
+            </div>
+
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card className="relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-500/20 to-transparent rounded-full blur-2xl"></div>
+                <div className="relative">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-4xl">📺</div>
+                    <div className="text-xs font-semibold px-3 py-1 rounded-full bg-blue-500/20 text-blue-300">Live</div>
+                  </div>
+                  <div className="text-3xl font-bold text-white mb-1">{channels.length}</div>
+                  <div className="text-sm text-slate-400">Live Channels</div>
+                  <div className="mt-3 text-xs text-slate-500">
+                    {channelImports.length} playlist{channelImports.length !== 1 ? 's' : ''} imported
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl"></div>
+                <div className="relative">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-4xl">🎬</div>
+                    <div className="text-xs font-semibold px-3 py-1 rounded-full bg-purple-500/20 text-purple-300">Series</div>
+                  </div>
+                  <div className="text-3xl font-bold text-white mb-1">{shows.length}</div>
+                  <div className="text-sm text-slate-400">TV Shows</div>
+                  <div className="mt-3 text-xs text-slate-500">
+                    {shows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0)} total episodes
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-pink-500/20 to-transparent rounded-full blur-2xl"></div>
+                <div className="relative">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-4xl">🎥</div>
+                    <div className="text-xs font-semibold px-3 py-1 rounded-full bg-pink-500/20 text-pink-300">VOD</div>
+                  </div>
+                  <div className="text-3xl font-bold text-white mb-1">{movies.length}</div>
+                  <div className="text-sm text-slate-400">Movies</div>
+                  <div className="mt-3 text-xs text-slate-500">
+                    On-demand content
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-aurora/20 to-transparent rounded-full blur-2xl"></div>
+                <div className="relative">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-4xl">📋</div>
+                    <div className="text-xs font-semibold px-3 py-1 rounded-full bg-aurora/20 text-aurora">Total</div>
+                  </div>
+                  <div className="text-3xl font-bold text-white mb-1">
+                    {channels.length + shows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0) + movies.length}
+                  </div>
+                  <div className="text-sm text-slate-400">Total Entries</div>
+                  <div className="mt-3 text-xs text-slate-500">
+                    In playlist
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Channel Groups */}
+            <Card>
+              <SectionTitle subtitle="Breakdown of your live channels by category">
+                📊 Channel Distribution
+              </SectionTitle>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {(() => {
+                  const groups = {};
+                  channels.forEach(ch => {
+                    const group = ch.group || "Uncategorized";
+                    groups[group] = (groups[group] || 0) + 1;
+                  });
+                  return Object.entries(groups)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 9)
+                    .map(([group, count]) => (
+                      <div key={group} className="flex items-center justify-between p-4 rounded-xl bg-slate-800/40 border border-white/5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-aurora/20 to-sky-500/20 flex items-center justify-center text-lg">
+                            📡
+                          </div>
+                          <div>
+                            <div className="font-semibold text-white text-sm">{group}</div>
+                            <div className="text-xs text-slate-500">{count} channel{count !== 1 ? 's' : ''}</div>
+                          </div>
+                        </div>
+                        <div className="text-2xl font-bold text-aurora">{count}</div>
+                      </div>
+                    ));
+                })()}
+                {channels.length === 0 && (
+                  <div className="col-span-full text-center py-8 text-slate-500">
+                    No channels added yet. Start by importing an M3U file or adding channels manually.
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Quick Actions */}
+            <Card>
+              <SectionTitle subtitle="Common tasks and operations">
+                ⚡ Quick Actions
+              </SectionTitle>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <button
+                  onClick={() => setActive("channels")}
+                  className="flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
+                >
+                  <div className="text-3xl">📺</div>
+                  <div>
+                    <div className="font-semibold text-white group-hover:text-aurora transition-colors">Manage Channels</div>
+                    <div className="text-sm text-slate-400 mt-1">Add, edit, or import live channels</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setActive("shows")}
+                  className="flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
+                >
+                  <div className="text-3xl">🎬</div>
+                  <div>
+                    <div className="font-semibold text-white group-hover:text-aurora transition-colors">Add TV Shows</div>
+                    <div className="text-sm text-slate-400 mt-1">Search TMDB and add series</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setActive("movies")}
+                  className="flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
+                >
+                  <div className="text-3xl">🎥</div>
+                  <div>
+                    <div className="font-semibold text-white group-hover:text-aurora transition-colors">Add Movies</div>
+                    <div className="text-sm text-slate-400 mt-1">Search TMDB and add films</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setActive("library")}
+                  className="flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
+                >
+                  <div className="text-3xl">📂</div>
+                  <div>
+                    <div className="font-semibold text-white group-hover:text-aurora transition-colors">Scan Library</div>
+                    <div className="text-sm text-slate-400 mt-1">Auto-discover media from directories</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setActive("playlist")}
+                  className="flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
+                >
+                  <div className="text-3xl">📋</div>
+                  <div>
+                    <div className="font-semibold text-white group-hover:text-aurora transition-colors">Export Playlist</div>
+                    <div className="text-sm text-slate-400 mt-1">Download your M3U playlist</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (apiKey) {
+                      navigator.clipboard.writeText(apiKey);
+                      alert("API key copied to clipboard!");
+                    } else {
+                      alert("Please add your TMDB API key first");
+                    }
+                  }}
+                  className="flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
+                >
+                  <div className="text-3xl">🔑</div>
+                  <div>
+                    <div className="font-semibold text-white group-hover:text-aurora transition-colors">Copy API Key</div>
+                    <div className="text-sm text-slate-400 mt-1">Copy TMDB API key to clipboard</div>
+                  </div>
+                </button>
+              </div>
+            </Card>
+
+            {/* Recent Activity */}
+            {channelImports.length > 0 && (
+              <Card>
+                <SectionTitle subtitle="Recently imported playlists">
+                  🕒 Recent Imports
+                </SectionTitle>
+                <div className="space-y-3">
+                  {channelImports.slice(0, 5).map(imp => {
+                    const linkedChannels = channelsByImport.get(imp.id) || [];
+                    const importDate = imp.createdAt ? new Date(imp.createdAt).toLocaleDateString() : "";
+                    return (
+                      <div key={imp.id} className="flex items-center justify-between p-4 rounded-xl bg-slate-800/40 border border-white/5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center">
+                            ✓
+                          </div>
+                          <div>
+                            <div className="font-semibold text-white text-sm">{imp.name}</div>
+                            <div className="text-xs text-slate-500">{linkedChannels.length} channels · {importDate}</div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setActive("channels")}
+                          className="text-xs font-medium px-3 py-1.5 rounded-lg bg-aurora/20 text-aurora hover:bg-aurora/30 transition-all"
+                        >
+                          View
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
+          </div>
+        )}
+
         {active === "library" && (
           <div className="space-y-6">
             <Card>
@@ -1354,22 +1595,110 @@ export default function App() {
         )}
 
         {active === "channels" && (
-          <Card>
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div>
-                <SectionTitle>Channels</SectionTitle>
-                <p className="text-sm text-slate-400 max-w-2xl">Manage live streams, logos, and EPG metadata for your channel lineup.</p>
+          <div className="space-y-6">
+            <Card>
+              <div className="flex flex-col gap-6">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                  <div>
+                    <SectionTitle>📺 Live Channels</SectionTitle>
+                    <p className="text-sm text-slate-400 max-w-2xl">Manage live streams, logos, and EPG metadata for your channel lineup.</p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                    <button
+                      className={secondaryButton}
+                      onClick={() => channelImportInputRef.current?.click()}
+                    >
+                      📥 Import M3U
+                    </button>
+                    <button className={primaryButton} onClick={addChannel}>
+                      ➕ Add Channel
+                    </button>
+                  </div>
+                </div>
+
+                {/* Search and Filter Bar */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-800/40 border border-white/5">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-2">Search Channels</label>
+                    <input
+                      type="text"
+                      className={inputClass}
+                      placeholder="Search by name or URL..."
+                      value={channelSearchQuery}
+                      onChange={(e) => setChannelSearchQuery(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-2">Filter by Group</label>
+                    <select
+                      className={inputClass}
+                      value={channelGroupFilter}
+                      onChange={(e) => setChannelGroupFilter(e.target.value)}
+                    >
+                      <option value="all">All Groups</option>
+                      {(() => {
+                        const groups = new Set(channels.map(ch => ch.group || "Uncategorized"));
+                        return Array.from(groups).sort().map(group => (
+                          <option key={group} value={group}>{group}</option>
+                        ));
+                      })()}
+                    </select>
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <button
+                      className={`${ghostButton} flex-1`}
+                      onClick={() => {
+                        setChannelSearchQuery("");
+                        setChannelGroupFilter("all");
+                        setSelectedChannels(new Set());
+                      }}
+                    >
+                      Clear Filters
+                    </button>
+                    {selectedChannels.size > 0 && (
+                      <button
+                        className={dangerButton}
+                        onClick={() => {
+                          if (window.confirm(`Delete ${selectedChannels.size} selected channel${selectedChannels.size > 1 ? 's' : ''}?`)) {
+                            setChannels(cs => cs.filter((_, i) => !selectedChannels.has(i)));
+                            setSelectedChannels(new Set());
+                          }
+                        }}
+                      >
+                        🗑️ Delete ({selectedChannels.size})
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Results Count */}
+                <div className="flex items-center justify-between text-sm">
+                  <div className="text-slate-400">
+                    Showing {(() => {
+                      const filtered = channels.filter((ch, idx) => {
+                        const searchLower = channelSearchQuery.toLowerCase();
+                        const matchesSearch = !searchLower || 
+                          ch.name?.toLowerCase().includes(searchLower) || 
+                          ch.url?.toLowerCase().includes(searchLower);
+                        const matchesGroup = channelGroupFilter === "all" || 
+                          (ch.group || "Uncategorized") === channelGroupFilter;
+                        return matchesSearch && matchesGroup;
+                      });
+                      return filtered.length;
+                    })()} of {channels.length} channels
+                  </div>
+                  {selectedChannels.size > 0 && (
+                    <button
+                      className="text-aurora hover:text-sky-400 text-sm font-medium"
+                      onClick={() => setSelectedChannels(new Set())}
+                    >
+                      Deselect all
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                <button
-                  className={secondaryButton}
-                  onClick={() => channelImportInputRef.current?.click()}
-                >
-                  Import .m3u file
-                </button>
-                <button className={primaryButton} onClick={addChannel}>Add channel</button>
-              </div>
-            </div>
+            </Card>
+
             <input
               ref={channelImportInputRef}
               type="file"
@@ -1447,71 +1776,175 @@ export default function App() {
               </div>
             )}
             {channels.length > 0 ? (
-              <div className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50">
+              <Card>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead className="bg-slate-900/70 text-xs uppercase tracking-wide text-slate-400">
                       <tr>
+                        <th className="px-4 py-3 text-left">
+                          <input
+                            type="checkbox"
+                            checked={selectedChannels.size === channels.filter((ch, idx) => {
+                              const searchLower = channelSearchQuery.toLowerCase();
+                              const matchesSearch = !searchLower || 
+                                ch.name?.toLowerCase().includes(searchLower) || 
+                                ch.url?.toLowerCase().includes(searchLower);
+                              const matchesGroup = channelGroupFilter === "all" || 
+                                (ch.group || "Uncategorized") === channelGroupFilter;
+                              return matchesSearch && matchesGroup;
+                            }).length && channels.length > 0}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                const filtered = channels
+                                  .map((ch, idx) => {
+                                    const searchLower = channelSearchQuery.toLowerCase();
+                                    const matchesSearch = !searchLower || 
+                                      ch.name?.toLowerCase().includes(searchLower) || 
+                                      ch.url?.toLowerCase().includes(searchLower);
+                                    const matchesGroup = channelGroupFilter === "all" || 
+                                      (ch.group || "Uncategorized") === channelGroupFilter;
+                                    return matchesSearch && matchesGroup ? idx : null;
+                                  })
+                                  .filter(i => i !== null);
+                                setSelectedChannels(new Set(filtered));
+                              } else {
+                                setSelectedChannels(new Set());
+                              }
+                            }}
+                            className="rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+                          />
+                        </th>
                         <th className="px-4 py-3 text-left font-semibold">#</th>
                         <th className="px-4 py-3 text-left font-semibold">Channel</th>
                         <th className="px-4 py-3 text-left font-semibold">Stream URL</th>
                         <th className="px-4 py-3 text-left font-semibold">Group</th>
+                        <th className="px-4 py-3 text-right font-semibold">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5 text-slate-200">
-                      {channels.map((c, idx) => (
-                        <tr key={`${c.id}-row`} className="odd:bg-slate-950/40 even:bg-slate-950/60">
-                          <td className="px-4 py-3 align-middle text-slate-400">{c.chno || idx + 1}</td>
-                          <td className="px-4 py-3 align-middle">
-                            <div className="flex items-center gap-3">
-                              {c.logo ? (
-                                <img src={c.logo} alt="" className="h-8 w-8 rounded-lg border border-white/10 object-cover" />
+                      {channels.map((c, idx) => {
+                        const searchLower = channelSearchQuery.toLowerCase();
+                        const matchesSearch = !searchLower || 
+                          c.name?.toLowerCase().includes(searchLower) || 
+                          c.url?.toLowerCase().includes(searchLower);
+                        const matchesGroup = channelGroupFilter === "all" || 
+                          (c.group || "Uncategorized") === channelGroupFilter;
+                        
+                        if (!matchesSearch || !matchesGroup) return null;
+                        
+                        return (
+                          <tr key={`${c.id}-row`} className="hover:bg-slate-900/60 transition-colors">
+                            <td className="px-4 py-3 align-middle">
+                              <input
+                                type="checkbox"
+                                checked={selectedChannels.has(idx)}
+                                onChange={(e) => {
+                                  const newSelected = new Set(selectedChannels);
+                                  if (e.target.checked) {
+                                    newSelected.add(idx);
+                                  } else {
+                                    newSelected.delete(idx);
+                                  }
+                                  setSelectedChannels(newSelected);
+                                }}
+                                className="rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+                              />
+                            </td>
+                            <td className="px-4 py-3 align-middle text-slate-400">{c.chno || idx + 1}</td>
+                            <td className="px-4 py-3 align-middle">
+                              <div className="flex items-center gap-3">
+                                {c.logo ? (
+                                  <img src={c.logo} alt="" className="h-10 w-10 rounded-lg border border-white/10 object-cover" />
+                                ) : (
+                                  <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-white/10 text-xs text-slate-500">
+                                    📺
+                                  </div>
+                                )}
+                                <div className="text-sm font-medium text-white">{c.name || "Untitled channel"}</div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 align-middle">
+                              {c.url ? (
+                                <a
+                                  href={c.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="max-w-[18rem] truncate text-aurora hover:text-sky-400 flex items-center gap-1"
+                                  title={c.url}
+                                >
+                                  {c.url}
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                </a>
                               ) : (
-                                <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-dashed border-white/10 text-[10px] text-slate-500">No logo</div>
+                                <span className="text-slate-500">No stream URL</span>
                               )}
-                              <div className="text-sm font-medium text-white">{c.name || "Untitled channel"}</div>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 align-middle">
-                            {c.url ? (
-                              <a
-                                href={c.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="max-w-[18rem] truncate text-aurora hover:text-aurora/80"
-                                title={c.url}
+                            </td>
+                            <td className="px-4 py-3 align-middle">
+                              <span className="px-2 py-1 rounded-md text-xs font-medium bg-slate-800/60 text-slate-300">
+                                {c.group || "Uncategorized"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 align-middle text-right">
+                              <button
+                                className="text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all"
+                                onClick={() => removeChannel(idx)}
                               >
-                                {c.url}
-                              </a>
-                            ) : (
-                              <span className="text-slate-500">No stream URL</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 align-middle text-slate-400">{c.group || "—"}</td>
-                        </tr>
-                      ))}
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
-              </div>
+              </Card>
             ) : (
-              <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-slate-950/40 px-4 py-6 text-sm text-slate-400">
-                No channels yet. Import a playlist or add channels manually below.
-              </div>
-            )}
-            <div className="mt-6 grid gap-4">
-              {channels.map((c, idx) => (
-                <div key={c.id} className="grid md:grid-cols-12 gap-3 items-center p-4 rounded-2xl border border-white/10 bg-slate-950/60 shadow-inner shadow-black/20">
-                  <input className={`md:col-span-2 ${inputClass}`} placeholder="Name" value={c.name} onChange={e=>updateChannel(idx,{name:e.target.value})} />
-                  <input className={`md:col-span-3 ${inputClass}`} placeholder="Stream URL" value={c.url} onChange={e=>updateChannel(idx,{url:e.target.value})} />
-                  <input className={`md:col-span-3 ${inputClass}`} placeholder="Logo URL" value={c.logo} onChange={e=>updateChannel(idx,{logo:e.target.value})} />
-                  <input className={`md:col-span-2 ${inputClass}`} placeholder="Group" value={c.group} onChange={e=>updateChannel(idx,{group:e.target.value})} />
-                  <input className={`md:col-span-1 ${inputClass}`} placeholder="#" value={c.chno} onChange={e=>updateChannel(idx,{chno:e.target.value})} />
-                  <button className={`md:col-span-1 w-full ${dangerButton}`} onClick={()=>removeChannel(idx)}>Remove</button>
+              <Card>
+                <div className="text-center py-12 text-slate-400">
+                  <div className="text-6xl mb-4">📺</div>
+                  <p className="text-lg font-medium mb-2">No channels yet</p>
+                  <p className="text-sm">Import a playlist or add channels manually to get started.</p>
                 </div>
-              ))}
-            </div>
-          </Card>
+              </Card>
+            )}
+            
+            {/* Edit Form Section */}
+            {channels.length > 0 && (
+              <Card>
+                <SectionTitle subtitle="Edit channel details individually">
+                  ✏️ Channel Editor
+                </SectionTitle>
+                <div className="space-y-4">
+                  {channels.map((c, idx) => {
+                    const searchLower = channelSearchQuery.toLowerCase();
+                    const matchesSearch = !searchLower || 
+                      c.name?.toLowerCase().includes(searchLower) || 
+                      c.url?.toLowerCase().includes(searchLower);
+                    const matchesGroup = channelGroupFilter === "all" || 
+                      (c.group || "Uncategorized") === channelGroupFilter;
+                    
+                    if (!matchesSearch || !matchesGroup) return null;
+                    
+                    return (
+                      <div key={c.id} className="grid md:grid-cols-12 gap-3 items-center p-4 rounded-xl bg-slate-800/40 border border-white/5 hover:border-aurora/20 transition-colors">
+                        <input className={`md:col-span-2 ${inputClass}`} placeholder="Name" value={c.name} onChange={e=>updateChannel(idx,{name:e.target.value})} />
+                        <input className={`md:col-span-3 ${inputClass}`} placeholder="Stream URL" value={c.url} onChange={e=>updateChannel(idx,{url:e.target.value})} />
+                        <input className={`md:col-span-3 ${inputClass}`} placeholder="Logo URL" value={c.logo} onChange={e=>updateChannel(idx,{logo:e.target.value})} />
+                        <input className={`md:col-span-2 ${inputClass}`} placeholder="Group" value={c.group} onChange={e=>updateChannel(idx,{group:e.target.value})} />
+                        <input className={`md:col-span-1 ${inputClass}`} placeholder="#" value={c.chno} onChange={e=>updateChannel(idx,{chno:e.target.value})} />
+                        <button className={`md:col-span-1 w-full text-xs font-medium px-3 py-2 rounded-lg text-red-300 hover:bg-red-500/20 transition-all`} onClick={()=>removeChannel(idx)}>
+                          🗑️
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
+          </div>
         )}
 
         {active === "shows" && (
