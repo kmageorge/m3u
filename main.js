@@ -21624,7 +21624,12 @@
       tmdbId,
       title: m.title,
       overview: m.overview || "",
-      poster: m.poster_path ? `https://image.tmdb.org/t/p/w342${m.poster_path}` : ""
+      poster: m.poster_path ? `https://image.tmdb.org/t/p/w342${m.poster_path}` : "",
+      releaseDate: m.release_date || "",
+      year: m.release_date ? new Date(m.release_date).getFullYear() : null,
+      rating: m.vote_average || 0,
+      genres: (m.genres || []).map((g) => g.name).join(", "),
+      runtime: m.runtime || null
     };
   }
   async function searchTMDBShows(apiKey, query) {
@@ -22172,6 +22177,7 @@
     const [channelGroupFilter, setChannelGroupFilter] = (0, import_react.useState)("all");
     const [showSearchFilter, setShowSearchFilter] = (0, import_react.useState)("");
     const [movieSearchFilter, setMovieSearchFilter] = (0, import_react.useState)("");
+    const [movieSortBy, setMovieSortBy] = (0, import_react.useState)(() => readLS("m3u_movie_sort", "added"));
     const [selectedChannels, setSelectedChannels] = (0, import_react.useState)(/* @__PURE__ */ new Set());
     const [selectedShows, setSelectedShows] = (0, import_react.useState)(/* @__PURE__ */ new Set());
     const [selectedMovies, setSelectedMovies] = (0, import_react.useState)(/* @__PURE__ */ new Set());
@@ -22406,6 +22412,7 @@
     (0, import_react.useEffect)(() => saveLS("m3u_channel_imports", channelImports), [channelImports]);
     (0, import_react.useEffect)(() => saveLS("m3u_shows", shows), [shows]);
     (0, import_react.useEffect)(() => saveLS("m3u_movies", movies), [movies]);
+    (0, import_react.useEffect)(() => saveLS("m3u_movie_sort", movieSortBy), [movieSortBy]);
     (0, import_react.useEffect)(() => saveLS("m3u_library_url", libraryUrl), [libraryUrl]);
     (0, import_react.useEffect)(() => saveLS("m3u_scan_subfolders", scanSubfolders), [scanSubfolders]);
     (0, import_react.useEffect)(() => saveLS("m3u_epg_sources", epgSources), [epgSources]);
@@ -23758,11 +23765,22 @@
         }
       },
       "\u2795 Add Movie"
-    ))))))), movies.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F3AC} Your Movies"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, movies.length, " films in your library")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ import_react.default.createElement(
+    ))))))), movies.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F3AC} Your Movies"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, movies.length, " films in your library")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2 items-center" }, /* @__PURE__ */ import_react.default.createElement(
+      "select",
+      {
+        className: `${inputClass} w-40 py-2`,
+        value: movieSortBy,
+        onChange: (e) => setMovieSortBy(e.target.value)
+      },
+      /* @__PURE__ */ import_react.default.createElement("option", { value: "added" }, "Recently Added"),
+      /* @__PURE__ */ import_react.default.createElement("option", { value: "title" }, "Title A-Z"),
+      /* @__PURE__ */ import_react.default.createElement("option", { value: "year" }, "Year (Newest)"),
+      /* @__PURE__ */ import_react.default.createElement("option", { value: "rating" }, "Rating (Highest)")
+    ), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         type: "text",
-        className: `${inputClass} w-64`,
+        className: `${inputClass} w-64 py-2`,
         placeholder: "Search movies...",
         value: movieSearchFilter,
         onChange: (e) => setMovieSearchFilter(e.target.value)
@@ -23784,67 +23802,82 @@
     ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-2" }, movies.filter((m) => {
       if (!movieSearchFilter.trim()) return true;
       const search = movieSearchFilter.toLowerCase();
-      return m.title?.toLowerCase().includes(search);
-    }).map((movie) => /* @__PURE__ */ import_react.default.createElement("div", { key: movie.id, className: "rounded-lg border border-white/10 bg-slate-800/40 p-3 hover:border-aurora/30 transition-all" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-3" }, /* @__PURE__ */ import_react.default.createElement(
-      "input",
-      {
-        type: "checkbox",
-        checked: selectedMovies.has(movie.id),
-        onChange: (e) => {
-          const newSelected = new Set(selectedMovies);
-          if (e.target.checked) {
-            newSelected.add(movie.id);
-          } else {
-            newSelected.delete(movie.id);
-          }
-          setSelectedMovies(newSelected);
-        },
-        className: "mt-0.5 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50 flex-shrink-0"
+      return m.title?.toLowerCase().includes(search) || m.genres?.toLowerCase().includes(search) || m.year?.toString().includes(search);
+    }).sort((a, b) => {
+      switch (movieSortBy) {
+        case "title":
+          return (a.title || "").localeCompare(b.title || "");
+        case "year":
+          return (b.year || 0) - (a.year || 0);
+        case "rating":
+          return (b.rating || 0) - (a.rating || 0);
+        case "added":
+        default:
+          return b.id.localeCompare(a.id);
       }
-    ), movie.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: movie.poster, alt: "", className: "w-12 h-16 rounded object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-12 h-16 rounded border border-dashed border-white/10 flex items-center justify-center text-xl flex-shrink-0" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-2 min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-bold text-white truncate" }, movie.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-0.5 flex gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "truncate" }, "TMDB #", movie.tmdbId), /* @__PURE__ */ import_react.default.createElement("span", { className: movie.url ? "text-green-400" : "text-yellow-400" }, movie.url ? "\u{1F517}" : "\u26A0\uFE0F"))), /* @__PURE__ */ import_react.default.createElement(
-      "button",
-      {
-        className: "text-xs px-2 py-1 rounded text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0",
-        onClick: () => {
-          if (window.confirm(`Delete "${movie.title}"?`)) {
-            setMovies((ms) => ms.filter((m) => m.id !== movie.id));
-          }
+    }).map((movie, idx) => {
+      const isNew = idx < 5 && movieSortBy === "added";
+      return /* @__PURE__ */ import_react.default.createElement("div", { key: movie.id, className: "rounded-lg border border-white/10 bg-slate-800/40 p-3 hover:border-aurora/30 transition-all" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-3" }, /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          type: "checkbox",
+          checked: selectedMovies.has(movie.id),
+          onChange: (e) => {
+            const newSelected = new Set(selectedMovies);
+            if (e.target.checked) {
+              newSelected.add(movie.id);
+            } else {
+              newSelected.delete(movie.id);
+            }
+            setSelectedMovies(newSelected);
+          },
+          className: "mt-0.5 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50 flex-shrink-0"
         }
-      },
-      "\u{1F5D1}\uFE0F"
-    )), movie.overview && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 mt-1 line-clamp-1" }, movie.overview)), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-medium text-slate-400 mb-1" }, "Stream URL"), /* @__PURE__ */ import_react.default.createElement(
-      "input",
-      {
-        className: `${inputClass} py-1.5 text-sm`,
-        placeholder: "https://cdn.example.com/movies/movie.mp4",
-        value: movie.url || "",
-        onChange: (e) => setMoviePatch(movie.id, { url: e.target.value })
-      }
-    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2 items-center" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "text-xs text-slate-400 font-medium" }, "Group:"), /* @__PURE__ */ import_react.default.createElement(
-      "input",
-      {
-        className: `${inputClass} flex-1 max-w-xs py-1 text-xs`,
-        placeholder: "e.g., Movies",
-        value: movie.group || "",
-        onChange: (e) => setMoviePatch(movie.id, { group: e.target.value })
-      }
-    )), /* @__PURE__ */ import_react.default.createElement("details", null, /* @__PURE__ */ import_react.default.createElement("summary", { className: "cursor-pointer text-xs font-medium text-slate-300 hover:text-white flex items-center gap-1.5" }, "\u2699\uFE0F Advanced"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 space-y-2 p-3 rounded-lg bg-slate-900/60 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-medium text-slate-400 mb-1" }, "Poster URL"), /* @__PURE__ */ import_react.default.createElement(
-      "input",
-      {
-        className: `${inputClass} py-1.5 text-sm`,
-        placeholder: "https://image.tmdb.org/t/p/w342/...",
-        value: movie.poster || "",
-        onChange: (e) => setMoviePatch(movie.id, { poster: e.target.value })
-      }
-    )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-medium text-slate-400 mb-1" }, "Overview/Description"), /* @__PURE__ */ import_react.default.createElement(
-      "textarea",
-      {
-        className: `${textareaClass} min-h-[80px] text-sm`,
-        placeholder: "Movie description...",
-        value: movie.overview || "",
-        onChange: (e) => setMoviePatch(movie.id, { overview: e.target.value })
-      }
-    )))))))))), movies.length === 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No Movies Yet"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "Search and add your first movie to get started")))), active === "playlist" && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Playlist Preview (.m3u)"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-3" }, /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: () => downloadText("playlist.m3u", m3u) }, "Download .m3u"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => navigator.clipboard.writeText(m3u) }, "Copy"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted playlist URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: playlistUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(playlistUrl) }, "Copy URL")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, playlistSyncStatus === "syncing" && "Uploading latest playlist\u2026", playlistSyncStatus === "saved" && "Playlist synced. Use this URL in any IPTV player.", playlistSyncStatus === "error" && "Sync failed \u2014 the download button still gives you a local file.", playlistSyncStatus === "idle" && "Playlist ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-6 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted EPG/XMLTV URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: epgUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(epgUrl) }, "Copy URL"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => downloadText("epg.xml", epg) }, "Download XML")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, epgSyncStatus === "syncing" && "Uploading latest EPG\u2026", epgSyncStatus === "saved" && "EPG synced. Use this URL in IPTV players that support EPG.", epgSyncStatus === "error" && "EPG sync failed \u2014 the download button still gives you a local file.", epgSyncStatus === "idle" && "EPG ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("textarea", { className: `${inputClass} h-96 font-mono text-sm`, value: m3u, onChange: () => {
+      ), movie.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: movie.poster, alt: "", className: "w-12 h-16 rounded object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-12 h-16 rounded border border-dashed border-white/10 flex items-center justify-center text-xl flex-shrink-0" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-2 min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-bold text-white truncate" }, movie.title, movie.year && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-400 font-normal ml-1" }, "(", movie.year, ")")), isNew && /* @__PURE__ */ import_react.default.createElement("span", { className: "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-300 border border-green-500/30" }, "NEW")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-0.5 flex gap-2 flex-wrap items-center" }, movie.rating > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-yellow-400" }, "\u2B50 ", movie.rating.toFixed(1)), movie.runtime && /* @__PURE__ */ import_react.default.createElement("span", null, Math.floor(movie.runtime / 60), "h ", movie.runtime % 60, "m"), /* @__PURE__ */ import_react.default.createElement("span", { className: "truncate" }, "TMDB #", movie.tmdbId), /* @__PURE__ */ import_react.default.createElement("span", { className: movie.url ? "text-green-400" : "text-yellow-400" }, movie.url ? "\u{1F517}" : "\u26A0\uFE0F")), movie.genres && /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-1 mt-1 flex-wrap" }, movie.genres.split(", ").slice(0, 3).map((genre) => /* @__PURE__ */ import_react.default.createElement("span", { key: genre, className: "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30" }, genre)))), /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          className: "text-xs px-2 py-1 rounded text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0",
+          onClick: () => {
+            if (window.confirm(`Delete "${movie.title}"?`)) {
+              setMovies((ms) => ms.filter((m) => m.id !== movie.id));
+            }
+          }
+        },
+        "\u{1F5D1}\uFE0F"
+      )), movie.overview && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 mt-1 line-clamp-1" }, movie.overview)), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-medium text-slate-400 mb-1" }, "Stream URL"), /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          className: `${inputClass} py-1.5 text-sm`,
+          placeholder: "https://cdn.example.com/movies/movie.mp4",
+          value: movie.url || "",
+          onChange: (e) => setMoviePatch(movie.id, { url: e.target.value })
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2 items-center" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "text-xs text-slate-400 font-medium" }, "Group:"), /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          className: `${inputClass} flex-1 max-w-xs py-1 text-xs`,
+          placeholder: "e.g., Movies",
+          value: movie.group || "",
+          onChange: (e) => setMoviePatch(movie.id, { group: e.target.value })
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("details", null, /* @__PURE__ */ import_react.default.createElement("summary", { className: "cursor-pointer text-xs font-medium text-slate-300 hover:text-white flex items-center gap-1.5" }, "\u2699\uFE0F Advanced"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 space-y-2 p-3 rounded-lg bg-slate-900/60 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-medium text-slate-400 mb-1" }, "Poster URL"), /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          className: `${inputClass} py-1.5 text-sm`,
+          placeholder: "https://image.tmdb.org/t/p/w342/...",
+          value: movie.poster || "",
+          onChange: (e) => setMoviePatch(movie.id, { poster: e.target.value })
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-medium text-slate-400 mb-1" }, "Overview/Description"), /* @__PURE__ */ import_react.default.createElement(
+        "textarea",
+        {
+          className: `${textareaClass} min-h-[80px] text-sm`,
+          placeholder: "Movie description...",
+          value: movie.overview || "",
+          onChange: (e) => setMoviePatch(movie.id, { overview: e.target.value })
+        }
+      )))))));
+    }))), movies.length === 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No Movies Yet"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "Search and add your first movie to get started")))), active === "playlist" && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Playlist Preview (.m3u)"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-3" }, /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: () => downloadText("playlist.m3u", m3u) }, "Download .m3u"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => navigator.clipboard.writeText(m3u) }, "Copy"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted playlist URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: playlistUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(playlistUrl) }, "Copy URL")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, playlistSyncStatus === "syncing" && "Uploading latest playlist\u2026", playlistSyncStatus === "saved" && "Playlist synced. Use this URL in any IPTV player.", playlistSyncStatus === "error" && "Sync failed \u2014 the download button still gives you a local file.", playlistSyncStatus === "idle" && "Playlist ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-6 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted EPG/XMLTV URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: epgUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(epgUrl) }, "Copy URL"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => downloadText("epg.xml", epg) }, "Download XML")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, epgSyncStatus === "syncing" && "Uploading latest EPG\u2026", epgSyncStatus === "saved" && "EPG synced. Use this URL in IPTV players that support EPG.", epgSyncStatus === "error" && "EPG sync failed \u2014 the download button still gives you a local file.", epgSyncStatus === "idle" && "EPG ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("textarea", { className: `${inputClass} h-96 font-mono text-sm`, value: m3u, onChange: () => {
     } }), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 mt-3" }, "Entries use #EXTINF with tvg-id, tvg-logo, group-title, and tvg-chno when provided."))), /* @__PURE__ */ import_react.default.createElement("footer", { className: "py-12 text-center text-xs text-slate-500/80" }, "Built with \u2764\uFE0F \u2013 Local-only demo. Add auth & backend before shipping."), /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed bottom-6 right-6 z-50 space-y-3 max-w-md" }, toasts.map((toast) => /* @__PURE__ */ import_react.default.createElement(
       "div",
       {

@@ -208,6 +208,11 @@ async function fetchTMDBMovie(apiKey, tmdbId) {
     title: m.title,
     overview: m.overview || "",
     poster: m.poster_path ? `https://image.tmdb.org/t/p/w342${m.poster_path}` : "",
+    releaseDate: m.release_date || "",
+    year: m.release_date ? new Date(m.release_date).getFullYear() : null,
+    rating: m.vote_average || 0,
+    genres: (m.genres || []).map(g => g.name).join(", "),
+    runtime: m.runtime || null,
   };
 }
 
@@ -837,6 +842,7 @@ export default function App() {
   const [channelGroupFilter, setChannelGroupFilter] = useState("all");
   const [showSearchFilter, setShowSearchFilter] = useState("");
   const [movieSearchFilter, setMovieSearchFilter] = useState("");
+  const [movieSortBy, setMovieSortBy] = useState(() => readLS("m3u_movie_sort", "added")); // added, title, year, rating
   const [selectedChannels, setSelectedChannels] = useState(new Set());
   const [selectedShows, setSelectedShows] = useState(new Set());
   const [selectedMovies, setSelectedMovies] = useState(new Set());
@@ -1089,6 +1095,7 @@ export default function App() {
   useEffect(() => saveLS("m3u_channel_imports", channelImports), [channelImports]);
   useEffect(() => saveLS("m3u_shows", shows), [shows]);
   useEffect(() => saveLS("m3u_movies", movies), [movies]);
+  useEffect(() => saveLS("m3u_movie_sort", movieSortBy), [movieSortBy]);
   useEffect(() => saveLS("m3u_library_url", libraryUrl), [libraryUrl]);
   useEffect(() => saveLS("m3u_scan_subfolders", scanSubfolders), [scanSubfolders]);
   useEffect(() => saveLS("m3u_epg_sources", epgSources), [epgSources]);
@@ -3574,10 +3581,20 @@ export default function App() {
                     <SectionTitle>🎬 Your Movies</SectionTitle>
                     <p className="text-sm text-slate-400 mt-1">{movies.length} films in your library</p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 items-center">
+                    <select
+                      className={`${inputClass} w-40 py-2`}
+                      value={movieSortBy}
+                      onChange={(e) => setMovieSortBy(e.target.value)}
+                    >
+                      <option value="added">Recently Added</option>
+                      <option value="title">Title A-Z</option>
+                      <option value="year">Year (Newest)</option>
+                      <option value="rating">Rating (Highest)</option>
+                    </select>
                     <input
                       type="text"
-                      className={`${inputClass} w-64`}
+                      className={`${inputClass} w-64 py-2`}
                       placeholder="Search movies..."
                       value={movieSearchFilter}
                       onChange={(e) => setMovieSearchFilter(e.target.value)}
@@ -3602,8 +3619,27 @@ export default function App() {
                   {movies.filter(m => {
                     if (!movieSearchFilter.trim()) return true;
                     const search = movieSearchFilter.toLowerCase();
-                    return m.title?.toLowerCase().includes(search);
-                  }).map(movie => (
+                    return m.title?.toLowerCase().includes(search) || 
+                           m.genres?.toLowerCase().includes(search) ||
+                           m.year?.toString().includes(search);
+                  })
+                  .sort((a, b) => {
+                    switch(movieSortBy) {
+                      case "title":
+                        return (a.title || "").localeCompare(b.title || "");
+                      case "year":
+                        return (b.year || 0) - (a.year || 0);
+                      case "rating":
+                        return (b.rating || 0) - (a.rating || 0);
+                      case "added":
+                      default:
+                        // Most recently added first (reverse ID order)
+                        return b.id.localeCompare(a.id);
+                    }
+                  })
+                  .map((movie, idx) => {
+                    const isNew = idx < 5 && movieSortBy === "added"; // Mark first 5 as new when sorted by added
+                    return (
                     <div key={movie.id} className="rounded-lg border border-white/10 bg-slate-800/40 p-3 hover:border-aurora/30 transition-all">
                       <div className="flex gap-3">
                         <input
@@ -3631,13 +3667,38 @@ export default function App() {
                           <div>
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0 flex-1">
-                                <div className="text-sm font-bold text-white truncate">{movie.title}</div>
-                                <div className="text-xs text-slate-400 mt-0.5 flex gap-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="text-sm font-bold text-white truncate">
+                                    {movie.title}
+                                    {movie.year && <span className="text-slate-400 font-normal ml-1">({movie.year})</span>}
+                                  </div>
+                                  {isNew && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-300 border border-green-500/30">
+                                      NEW
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-slate-400 mt-0.5 flex gap-2 flex-wrap items-center">
+                                  {movie.rating > 0 && (
+                                    <span className="text-yellow-400">⭐ {movie.rating.toFixed(1)}</span>
+                                  )}
+                                  {movie.runtime && (
+                                    <span>{Math.floor(movie.runtime / 60)}h {movie.runtime % 60}m</span>
+                                  )}
                                   <span className="truncate">TMDB #{movie.tmdbId}</span>
                                   <span className={movie.url ? "text-green-400" : "text-yellow-400"}>
                                     {movie.url ? "🔗" : "⚠️"}
                                   </span>
                                 </div>
+                                {movie.genres && (
+                                  <div className="flex gap-1 mt-1 flex-wrap">
+                                    {movie.genres.split(", ").slice(0, 3).map(genre => (
+                                      <span key={genre} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                        {genre}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                               <button
                                 className="text-xs px-2 py-1 rounded text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0"
@@ -3707,7 +3768,8 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </Card>
             )}
