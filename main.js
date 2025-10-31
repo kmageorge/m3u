@@ -21957,6 +21957,9 @@
     const freekeyFetchAttempted = (0, import_react.useRef)(false);
     const [active, setActive] = (0, import_react.useState)("channels");
     const [channels, setChannels] = (0, import_react.useState)(() => readLS("m3u_channels", []));
+    const [channelLogoQuery, setChannelLogoQuery] = (0, import_react.useState)("");
+    const [channelLogoLoading, setChannelLogoLoading] = (0, import_react.useState)(false);
+    const [channelLogoResults, setChannelLogoResults] = (0, import_react.useState)([]);
     const [shows, setShows] = (0, import_react.useState)(() => readLS("m3u_shows", []).map((s) => ({ ...s, group: s.group ?? "TV Shows" })));
     const [movies, setMovies] = (0, import_react.useState)(() => readLS("m3u_movies", []).map((m) => ({ ...m, group: m.group ?? "Movies" })));
     const [showSearchQuery, setShowSearchQuery] = (0, import_react.useState)("");

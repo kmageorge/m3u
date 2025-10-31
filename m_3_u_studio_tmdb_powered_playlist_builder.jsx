@@ -507,6 +507,9 @@ export default function App() {
   const [active, setActive] = useState("channels");
 
   const [channels, setChannels] = useState(() => readLS("m3u_channels", []));
+  const [channelLogoQuery, setChannelLogoQuery] = useState("");
+  const [channelLogoLoading, setChannelLogoLoading] = useState(false);
+  const [channelLogoResults, setChannelLogoResults] = useState([]);
   const [shows, setShows] = useState(() => readLS("m3u_shows", []).map(s => ({ ...s, group: s.group ?? "TV Shows" })));
   const [movies, setMovies] = useState(() => readLS("m3u_movies", []).map(m => ({ ...m, group: m.group ?? "Movies" })));
   const [showSearchQuery, setShowSearchQuery] = useState("");
