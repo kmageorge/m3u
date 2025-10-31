@@ -501,7 +501,8 @@ const [libraryLoading, setLibraryLoading] = useState(false);
 const [libraryError, setLibraryError] = useState("");
 const [libraryMovies, setLibraryMovies] = useState([]);
 const [libraryShows, setLibraryShows] = useState([]);
-const [libraryProgress, setLibraryProgress] = useState({ active: false, processed: 0, found: 0, logs: [], stage: "idle" });
+  const [libraryProgress, setLibraryProgress] = useState({ active: false, processed: 0, found: 0, logs: [], stage: "idle" });
+  const [libraryDeepScan, setLibraryDeepScan] = useState(false);
 
   const inputClass = "w-full px-4 py-3 rounded-2xl border border-white/10 bg-slate-900/70 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-aurora/60 focus:border-transparent transition";
   const textareaClass = `${inputClass} min-h-[140px] leading-relaxed`;
@@ -608,7 +609,7 @@ const [libraryProgress, setLibraryProgress] = useState({ active: false, processe
     setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling" });
     try {
       const files = await crawlDirectory(url, {
-        maxDepth: 3,
+        maxDepth: libraryDeepScan ? 3 : 0,
         throttleMs: 800,
         onDiscover: (info) => {
           setLibraryProgress(prev => {
@@ -816,6 +817,15 @@ const [libraryProgress, setLibraryProgress] = useState({ active: false, processe
                       value={libraryUrl}
                       onChange={(e)=>setLibraryUrl(e.target.value)}
                     />
+                    <label className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-white/20 bg-slate-950 text-aurora focus:ring-aurora/60"
+                        checked={libraryDeepScan}
+                        onChange={(e)=>setLibraryDeepScan(e.target.checked)}
+                      />
+                      Scan subfolders (may take longer and rely on proxy)
+                    </label>
                   </div>
                   <button className={primaryButton} onClick={fetchLibraryCatalog} disabled={libraryLoading}>
                     {libraryLoading ? "Scanning…" : "Scan Library"}

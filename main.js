@@ -21918,6 +21918,7 @@
     const [libraryMovies, setLibraryMovies] = (0, import_react.useState)([]);
     const [libraryShows, setLibraryShows] = (0, import_react.useState)([]);
     const [libraryProgress, setLibraryProgress] = (0, import_react.useState)({ active: false, processed: 0, found: 0, logs: [], stage: "idle" });
+    const [libraryDeepScan, setLibraryDeepScan] = (0, import_react.useState)(false);
     const inputClass = "w-full px-4 py-3 rounded-2xl border border-white/10 bg-slate-900/70 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-aurora/60 focus:border-transparent transition";
     const textareaClass = `${inputClass} min-h-[140px] leading-relaxed`;
     const baseButton = "inline-flex items-center justify-center px-5 py-3 rounded-full font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950";
@@ -22011,7 +22012,7 @@
       setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling" });
       try {
         const files = await crawlDirectory(url, {
-          maxDepth: 3,
+          maxDepth: libraryDeepScan ? 3 : 0,
           throttleMs: 800,
           onDiscover: (info) => {
             setLibraryProgress((prev) => {
@@ -22167,7 +22168,15 @@
         value: libraryUrl,
         onChange: (e) => setLibraryUrl(e.target.value)
       }
-    )), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: fetchLibraryCatalog, disabled: libraryLoading }, libraryLoading ? "Scanning\u2026" : "Scan Library")), libraryError && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-red-300" }, libraryError), !libraryError && !libraryLoading && (libraryMovies.length || libraryShows.length) === 0 && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500" }, "No media detected yet. Try scanning to begin."))), libraryLoading && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-aurora/80" }, "Crawling directories and analysing filenames\u2026")), (libraryProgress.active || libraryProgress.processed > 0 || libraryProgress.stage === "error") && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, libraryProgress.stage === "completed" ? "Scan completed" : libraryProgress.stage === "error" ? "Scan incomplete" : "Scanning\u2026"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400" }, "Found ", libraryProgress.found, " file", libraryProgress.found === 1 ? "" : "s")), /* @__PURE__ */ import_react.default.createElement("div", { className: "h-2 rounded-full bg-slate-900/60 overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement(
+    ), /* @__PURE__ */ import_react.default.createElement("label", { className: "mt-3 flex items-center gap-2 text-xs text-slate-400" }, /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        type: "checkbox",
+        className: "h-4 w-4 rounded border-white/20 bg-slate-950 text-aurora focus:ring-aurora/60",
+        checked: libraryDeepScan,
+        onChange: (e) => setLibraryDeepScan(e.target.checked)
+      }
+    ), "Scan subfolders (may take longer and rely on proxy)")), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: fetchLibraryCatalog, disabled: libraryLoading }, libraryLoading ? "Scanning\u2026" : "Scan Library")), libraryError && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-red-300" }, libraryError), !libraryError && !libraryLoading && (libraryMovies.length || libraryShows.length) === 0 && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500" }, "No media detected yet. Try scanning to begin."))), libraryLoading && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-aurora/80" }, "Crawling directories and analysing filenames\u2026")), (libraryProgress.active || libraryProgress.processed > 0 || libraryProgress.stage === "error") && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, libraryProgress.stage === "completed" ? "Scan completed" : libraryProgress.stage === "error" ? "Scan incomplete" : "Scanning\u2026"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400" }, "Found ", libraryProgress.found, " file", libraryProgress.found === 1 ? "" : "s")), /* @__PURE__ */ import_react.default.createElement("div", { className: "h-2 rounded-full bg-slate-900/60 overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement(
       "div",
       {
         className: `h-full ${libraryProgress.active ? "bg-gradient-to-r from-aurora via-sky-500 to-aurora animate-pulse" : "bg-aurora/60"}`,
