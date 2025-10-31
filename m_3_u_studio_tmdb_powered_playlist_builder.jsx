@@ -401,13 +401,24 @@ function parseDirectoryListing(htmlOrText, baseUrl) {
 
 function normalizeTitle(raw) {
   let cleaned = raw
+    // Replace underscores and dots with spaces
     .replace(/[_\.]+/g, " ")
-    .replace(/\s*(\(|\[).*?(DIVX|1080p|720p|x264|x265|BluRay|WEBRip|HDR).*(\)|\])\s*/gi, " ")
+    // Remove bracketed quality/format info
+    .replace(/\s*(\(|\[).*?(DIVX|1080p|720p|480p|2160p|4K|x264|x265|h264|h265|HEVC|BluRay|BRRip|WEBRip|WEB-DL|HDR|HDRip|DVDRip|CAM|TS).*(\)|\])\s*/gi, " ")
+    // Remove common scene group tags at the end
+    .replace(/[\[\(]?[A-Z0-9]+[\]\)]?\s*$/i, " ")
+    // Remove hyphens between words
+    .replace(/\s*-\s*/g, " ")
     .replace(/\s+/g, " ");
 
+  // Remove quality tags
   cleaned = cleaned.replace(QUALITY_REGEX, " ");
-  cleaned = cleaned.replace(/-\s*(theatrical|extended|director's cut)$/i, " ");
-  cleaned = cleaned.replace(/\bpart\s*\d+$/i, " ");
+  // Remove edition info
+  cleaned = cleaned.replace(/\b(theatrical|extended|director'?s?\s*cut|unrated|uncut|remastered|anniversary|collector'?s?\s*edition)\b/gi, " ");
+  // Remove part numbers
+  cleaned = cleaned.replace(/\bpart\s*\d+\b/gi, " ");
+  // Remove common suffixes
+  cleaned = cleaned.replace(/\b(complete|season|series|collection|boxset|box\s*set)\b/gi, " ");
 
   return cleaned.replace(/\s+/g, " ").trim();
 }
@@ -415,24 +426,32 @@ function normalizeTitle(raw) {
 function parseMediaName(filename) {
   const decoded = decodeURIComponent(filename);
   const noExt = decoded.replace(/\.[^/.]+$/, "");
-  const normalized = normalizeTitle(noExt);
+  
+  // Check for episode patterns first (before normalizing)
   const episodeRegex = /(?:^|\b)[Ss](\d{1,2})[^\d]{0,2}[Ee](\d{1,2})(?:\b|[^0-9])/;
   const seasonEpisodeAlt = /Season\s*(\d{1,2}).*Episode\s*(\d{1,2})/i;
   const xNotation = /(\d{1,2})x(\d{1,2})/;
 
-  let match = normalized.match(episodeRegex);
-  if (!match) match = normalized.match(seasonEpisodeAlt);
-  if (!match) match = normalized.match(xNotation);
+  let match = noExt.match(episodeRegex);
+  if (!match) match = noExt.match(seasonEpisodeAlt);
+  if (!match) match = noExt.match(xNotation);
 
   if (match) {
     const season = parseInt(match[1], 10);
     const episode = parseInt(match[2], 10);
-    const title = normalizeTitle(normalized.slice(0, match.index).replace(/[-_\.\s]+$/g, " ").trim()) || normalized;
-    return { kind: "episode", showTitle: title, season, episode };
+    // Extract title before the episode marker
+    const beforeEpisode = noExt.slice(0, match.index);
+    // Clean the title
+    const title = normalizeTitle(beforeEpisode);
+    return { kind: "episode", title, season, episode };
   }
 
-  const yearMatch = normalized.match(/\b(19|20)\d{2}\b/);
-  const title = normalizeTitle(normalized.replace(/\b(19|20)\d{2}\b/, "").trim());
+  // Movie parsing
+  const normalized = normalizeTitle(noExt);
+  const yearMatch = noExt.match(/\b(19|20)\d{2}\b/);
+  // Remove year from title if found
+  const title = yearMatch ? normalizeTitle(noExt.replace(/\b(19|20)\d{2}\b/, "")) : normalized;
+  
   return { kind: "movie", title: title || normalized, year: yearMatch ? yearMatch[0] : undefined };
 }
 
@@ -925,10 +944,12 @@ export default function App() {
         const norm = normalizeTitle(info.title);
         let tmdbId = tmdbCacheRef.current.movies.get(norm);
         if (!tmdbId) {
-          const results = await searchTMDBMovies(apiKey, info.title);
+          // Search with year if available for better accuracy
+          const searchQuery = info.year ? `${info.title} ${info.year}` : info.title;
+          const results = await searchTMDBMovies(apiKey, searchQuery);
           if (!results || results.length === 0) {
             setLibraryProgress(prev => ({ ...prev, skipped: (prev.skipped || 0) + 1, logs: [
-              `No TMDB match for movie: ${info.title}`,
+              `No TMDB match for movie: ${info.title}${info.year ? ` (${info.year})` : ''}`,
               ...prev.logs
             ].slice(0, 8) }));
             return;
@@ -939,7 +960,7 @@ export default function App() {
         await importMovie(tmdbId, { url, group: "Movies" });
         importedUrlSetRef.current.add(url);
         setLibraryProgress(prev => ({ ...prev, imported: (prev.imported || 0) + 1, logs: [
-          `✓ Imported movie: ${info.title}`,
+          `✓ Imported movie: ${info.title}${info.year ? ` (${info.year})` : ''}`,
           ...prev.logs
         ].slice(0, 8) }));
         return;

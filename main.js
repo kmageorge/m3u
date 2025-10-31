@@ -21835,30 +21835,32 @@
     return entries;
   }
   function normalizeTitle(raw) {
-    let cleaned = raw.replace(/[_\.]+/g, " ").replace(/\s*(\(|\[).*?(DIVX|1080p|720p|x264|x265|BluRay|WEBRip|HDR).*(\)|\])\s*/gi, " ").replace(/\s+/g, " ");
+    let cleaned = raw.replace(/[_\.]+/g, " ").replace(/\s*(\(|\[).*?(DIVX|1080p|720p|480p|2160p|4K|x264|x265|h264|h265|HEVC|BluRay|BRRip|WEBRip|WEB-DL|HDR|HDRip|DVDRip|CAM|TS).*(\)|\])\s*/gi, " ").replace(/[\[\(]?[A-Z0-9]+[\]\)]?\s*$/i, " ").replace(/\s*-\s*/g, " ").replace(/\s+/g, " ");
     cleaned = cleaned.replace(QUALITY_REGEX, " ");
-    cleaned = cleaned.replace(/-\s*(theatrical|extended|director's cut)$/i, " ");
-    cleaned = cleaned.replace(/\bpart\s*\d+$/i, " ");
+    cleaned = cleaned.replace(/\b(theatrical|extended|director'?s?\s*cut|unrated|uncut|remastered|anniversary|collector'?s?\s*edition)\b/gi, " ");
+    cleaned = cleaned.replace(/\bpart\s*\d+\b/gi, " ");
+    cleaned = cleaned.replace(/\b(complete|season|series|collection|boxset|box\s*set)\b/gi, " ");
     return cleaned.replace(/\s+/g, " ").trim();
   }
   function parseMediaName(filename) {
     const decoded = decodeURIComponent(filename);
     const noExt = decoded.replace(/\.[^/.]+$/, "");
-    const normalized = normalizeTitle(noExt);
     const episodeRegex = /(?:^|\b)[Ss](\d{1,2})[^\d]{0,2}[Ee](\d{1,2})(?:\b|[^0-9])/;
     const seasonEpisodeAlt = /Season\s*(\d{1,2}).*Episode\s*(\d{1,2})/i;
     const xNotation = /(\d{1,2})x(\d{1,2})/;
-    let match = normalized.match(episodeRegex);
-    if (!match) match = normalized.match(seasonEpisodeAlt);
-    if (!match) match = normalized.match(xNotation);
+    let match = noExt.match(episodeRegex);
+    if (!match) match = noExt.match(seasonEpisodeAlt);
+    if (!match) match = noExt.match(xNotation);
     if (match) {
       const season = parseInt(match[1], 10);
       const episode = parseInt(match[2], 10);
-      const title2 = normalizeTitle(normalized.slice(0, match.index).replace(/[-_\.\s]+$/g, " ").trim()) || normalized;
-      return { kind: "episode", showTitle: title2, season, episode };
+      const beforeEpisode = noExt.slice(0, match.index);
+      const title2 = normalizeTitle(beforeEpisode);
+      return { kind: "episode", title: title2, season, episode };
     }
-    const yearMatch = normalized.match(/\b(19|20)\d{2}\b/);
-    const title = normalizeTitle(normalized.replace(/\b(19|20)\d{2}\b/, "").trim());
+    const normalized = normalizeTitle(noExt);
+    const yearMatch = noExt.match(/\b(19|20)\d{2}\b/);
+    const title = yearMatch ? normalizeTitle(noExt.replace(/\b(19|20)\d{2}\b/, "")) : normalized;
     return { kind: "movie", title: title || normalized, year: yearMatch ? yearMatch[0] : void 0 };
   }
   async function crawlDirectory(baseUrl, options = {}) {
@@ -22273,10 +22275,11 @@
           const norm = normalizeTitle(info.title);
           let tmdbId = tmdbCacheRef.current.movies.get(norm);
           if (!tmdbId) {
-            const results = await searchTMDBMovies(apiKey, info.title);
+            const searchQuery = info.year ? `${info.title} ${info.year}` : info.title;
+            const results = await searchTMDBMovies(apiKey, searchQuery);
             if (!results || results.length === 0) {
               setLibraryProgress((prev) => ({ ...prev, skipped: (prev.skipped || 0) + 1, logs: [
-                `No TMDB match for movie: ${info.title}`,
+                `No TMDB match for movie: ${info.title}${info.year ? ` (${info.year})` : ""}`,
                 ...prev.logs
               ].slice(0, 8) }));
               return;
@@ -22287,7 +22290,7 @@
           await importMovie(tmdbId, { url, group: "Movies" });
           importedUrlSetRef.current.add(url);
           setLibraryProgress((prev) => ({ ...prev, imported: (prev.imported || 0) + 1, logs: [
-            `\u2713 Imported movie: ${info.title}`,
+            `\u2713 Imported movie: ${info.title}${info.year ? ` (${info.year})` : ""}`,
             ...prev.logs
           ].slice(0, 8) }));
           return;
