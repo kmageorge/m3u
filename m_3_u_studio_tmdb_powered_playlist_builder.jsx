@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import freekeys from "freekeys";
 
 // M3U Studio – single-file React app
@@ -9,10 +9,31 @@ import freekeys from "freekeys";
 // - URL pattern helper guesses episode links from a few samples.
 
 // ---------- Utility helpers ----------
-const saveLS = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-const readLS = (k, d) => {
-  try { const v = JSON.parse(localStorage.getItem(k) || "null"); return v ?? d; } catch { return d; }
+const STORAGE_ENDPOINT = "/api/storage";
+const STORAGE_KEYS = {
+  apiKey: "tmdb_api_key",
+  channels: "m3u_channels",
+  channelImports: "m3u_channel_imports",
+  shows: "m3u_shows",
+  movies: "m3u_movies",
+  libraryUrl: "m3u_library_url"
 };
+
+async function fetchStorageSnapshot() {
+  const res = await fetch(STORAGE_ENDPOINT, { method: "GET" });
+  if (!res.ok) {
+    throw new Error(`Failed to load storage (${res.status})`);
+  }
+  return res.json();
+}
+
+function persistStorage(key, value) {
+  return fetch(STORAGE_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value })
+  });
+}
 
 const pad = (n, len = 2) => String(n).padStart(len, "0");
 
