@@ -21799,7 +21799,7 @@
     return { kind: "movie", title: title || normalized, year: yearMatch ? yearMatch[0] : void 0 };
   }
   async function crawlDirectory(baseUrl, options = {}) {
-    const { maxDepth = 2, signal, throttleMs = 800, onDiscover } = options;
+    const { maxDepth = Number.POSITIVE_INFINITY, signal, throttleMs = 800, onDiscover } = options;
     const initial = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
     const initialFetch = initial.startsWith(LOCAL_PROXY_PREFIX) ? initial : buildLocalProxyUrl(initial);
     const queue = [{ fetchUrl: initialFetch, linkUrl: initial, depth: 0 }];
@@ -22104,7 +22104,6 @@
       setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling" });
       try {
         const files = await crawlDirectory(url, {
-          maxDepth: 4,
           throttleMs: 800,
           onDiscover: (info) => {
             setLibraryProgress((prev) => {
