@@ -21931,6 +21931,7 @@
     const secondaryButton = `${baseButton} border border-white/10 bg-slate-900/70 text-slate-200 focus:ring-aurora/30 hover:border-aurora/40 hover:text-white`;
     const ghostButton = `${baseButton} border border-white/10 text-slate-200 bg-transparent focus:ring-aurora/30 hover:border-aurora/50 hover:text-white`;
     const dangerButton = `${baseButton} border border-red-500/40 text-red-200 bg-red-500/10 focus:ring-red-400/50 hover:bg-red-500/20`;
+    const m3u = (0, import_react.useMemo)(() => buildM3U({ channels, shows, movies }), [channels, shows, movies]);
     (0, import_react.useEffect)(() => saveLS("tmdb_api_key", apiKey), [apiKey]);
     (0, import_react.useEffect)(() => saveLS("m3u_channels", channels), [channels]);
     (0, import_react.useEffect)(() => saveLS("m3u_shows", shows), [shows]);
@@ -22128,7 +22129,6 @@
       setLibraryShows((ms) => ms.filter((s) => s.key !== show.key));
       alert(`Imported "${suggestion.title}" with ${Object.keys(episodeMap).length} episodes linked.`);
     };
-    const m3u = (0, import_react.useMemo)(() => buildM3U({ channels, shows, movies }), [channels, shows, movies]);
     const addChannel = () => setChannels((cs) => [...cs, { id: `ch-${Date.now()}`, name: "New Channel", url: "", logo: "", group: "Live", chno: cs.length + 1 }]);
     const updateChannel = (idx, patch) => setChannels((cs) => cs.map((c, i) => i === idx ? { ...c, ...patch } : c));
     const removeChannel = (idx) => setChannels((cs) => cs.filter((_, i) => i !== idx));
