@@ -1266,6 +1266,59 @@ export default function App() {
                 )}
               </div>
             )}
+            {channels.length > 0 ? (
+              <div className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-900/70 text-xs uppercase tracking-wide text-slate-400">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-semibold">#</th>
+                        <th className="px-4 py-3 text-left font-semibold">Channel</th>
+                        <th className="px-4 py-3 text-left font-semibold">Stream URL</th>
+                        <th className="px-4 py-3 text-left font-semibold">Group</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 text-slate-200">
+                      {channels.map((c, idx) => (
+                        <tr key={`${c.id}-row`} className="odd:bg-slate-950/40 even:bg-slate-950/60">
+                          <td className="px-4 py-3 align-middle text-slate-400">{c.chno || idx + 1}</td>
+                          <td className="px-4 py-3 align-middle">
+                            <div className="flex items-center gap-3">
+                              {c.logo ? (
+                                <img src={c.logo} alt="" className="h-8 w-8 rounded-lg border border-white/10 object-cover" />
+                              ) : (
+                                <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-dashed border-white/10 text-[10px] text-slate-500">No logo</div>
+                              )}
+                              <div className="text-sm font-medium text-white">{c.name || "Untitled channel"}</div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            {c.url ? (
+                              <a
+                                href={c.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="max-w-[18rem] truncate text-aurora hover:text-aurora/80"
+                                title={c.url}
+                              >
+                                {c.url}
+                              </a>
+                            ) : (
+                              <span className="text-slate-500">No stream URL</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 align-middle text-slate-400">{c.group || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-slate-950/40 px-4 py-6 text-sm text-slate-400">
+                No channels yet. Import a playlist or add channels manually below.
+              </div>
+            )}
             <div className="mt-6 grid gap-4">
               {channels.map((c, idx) => (
                 <div key={c.id} className="grid md:grid-cols-12 gap-3 items-center p-4 rounded-2xl border border-white/10 bg-slate-950/60 shadow-inner shadow-black/20">
