@@ -1949,340 +1949,568 @@ export default function App() {
 
         {active === "shows" && (
           <div className="space-y-6">
+            {/* Import Section */}
             <Card>
-              <div className="space-y-4">
-                <SectionTitle>Import TV Show</SectionTitle>
-                <p className="text-sm text-slate-400 max-w-3xl">
-                  Search TMDB by name to get instant suggestions, or paste a numeric TMDB ID and import directly.
-                </p>
-                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                  <div>
-                    <label className="block text-xs uppercase tracking-wide text-slate-400">Search TMDB</label>
-                    <input
-                      className={`${inputClass} mt-2`}
-                      placeholder="e.g. Game of Thrones or 1399"
-                      value={showSearchQuery}
-                      onChange={(e)=>setShowSearchQuery(e.target.value)}
-                    />
-                    <p className="mt-2 text-xs text-slate-500">
-                      {apiKey ? "Type at least two characters to fetch suggestions." : "Add your TMDB API key above to enable name search."}
-                    </p>
-                  </div>
-                  <button
-                    className={`${primaryButton} disabled:opacity-50 disabled:cursor-not-allowed`}
-                    disabled={!showSearchQuery.trim()}
-                    onClick={async ()=>{
-                      const val = showSearchQuery.trim();
-                      if (!val) return;
-                      if (!/^\d+$/.test(val)) {
-                        alert("Importing by ID expects a numeric TMDB identifier. Pick a suggestion below or paste an ID.");
-                        return;
-                      }
+              <SectionTitle 
+                subtitle="Search TMDB by name or import by ID to add series with metadata"
+              >
+                🎬 Add TV Show
+              </SectionTitle>
+              <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+                <div className="space-y-3">
+                  <label className="block text-sm font-semibold text-slate-300">Search TMDB</label>
+                  <input
+                    className={inputClass}
+                    placeholder="e.g., Breaking Bad, Game of Thrones, or TMDB ID like 1399"
+                    value={showSearchQuery}
+                    onChange={(e)=>setShowSearchQuery(e.target.value)}
+                  />
+                  <p className="text-xs text-slate-500 flex items-start gap-2">
+                    <span className="text-aurora">💡</span>
+                    <span>{apiKey ? "Type to search or enter numeric TMDB ID" : "Add your TMDB API key to enable search"}</span>
+                  </p>
+                </div>
+                <button
+                  className={primaryButton}
+                  disabled={!showSearchQuery.trim() || !apiKey}
+                  onClick={async ()=>{
+                    const val = showSearchQuery.trim();
+                    if (!val) return;
+                    if (!/^\d+$/.test(val)) {
+                      alert("To import by ID, enter a numeric TMDB identifier. Or select from suggestions below.");
+                      return;
+                    }
+                    try {
                       await importShow(val);
                       setShowSearchQuery("");
                       setShowSuggestions([]);
-                    }}
-                  >
-                    Import by ID
-                  </button>
-                </div>
-                {showSearchBusy && apiKey && (
-                  <div className="text-xs text-aurora/80">Searching TMDB…</div>
-                )}
-                {apiKey && showSuggestions.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="text-xs uppercase tracking-wide text-slate-400">Suggestions</div>
-                    <div className="grid gap-3">
-                      {showSuggestions.map(sug => (
-                        <div key={sug.id} className="flex gap-4 rounded-2xl border border-white/10 bg-slate-950/60 p-4">
-                          {sug.poster ? (
-                            <img src={sug.poster} alt="" className="w-16 h-24 rounded-xl object-cover border border-white/10" />
-                          ) : (
-                            <div className="w-16 h-24 rounded-xl border border-dashed border-white/10 flex items-center justify-center text-[10px] text-slate-500">
-                              No art
-                            </div>
-                          )}
-                          <div className="flex-1">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <div className="text-sm font-semibold text-white">{sug.title}</div>
-                                <div className="text-xs text-slate-400 mt-1 flex gap-2">
-                                  <span>{sug.date ? sug.date.slice(0,4) : "—"}</span>
-                                  <span>TMDB #{sug.id}</span>
-                                  {sug.vote ? <span>★ {sug.vote.toFixed(1)}</span> : null}
-                                </div>
-                              </div>
-                              <button
-                                className={primaryButton}
-                                onClick={async ()=>{
-                                  await importShow(String(sug.id));
-                                  setShowSearchQuery("");
-                                  setShowSuggestions([]);
-                                }}
-                              >
-                                Add show
-                              </button>
-                            </div>
-                            <p className="mt-2 text-xs text-slate-400 leading-relaxed line-clamp-3">{sug.overview}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                      alert("TV Show imported successfully!");
+                    } catch (err) {
+                      alert("Failed to import show: " + err.message);
+                    }
+                  }}
+                >
+                  {showSearchQuery.trim() && /^\d+$/.test(showSearchQuery.trim()) ? "📥 Import by ID" : "🔍 Search"}
+                </button>
               </div>
+              {showSearchBusy && apiKey && (
+                <div className="mt-4 flex items-center gap-3 text-sm text-aurora">
+                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                  </svg>
+                  <span>Searching TMDB...</span>
+                </div>
+              )}
+              {apiKey && showSuggestions.length > 0 && (
+                <div className="mt-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-white">Search Results</div>
+                    <div className="text-xs text-slate-500">{showSuggestions.length} found</div>
+                  </div>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {showSuggestions.map(sug => (
+                      <div key={sug.id} className="flex gap-4 rounded-xl border border-white/10 bg-slate-800/40 p-4 hover:border-aurora/30 transition-all">
+                        {sug.poster ? (
+                          <img src={sug.poster} alt="" className="w-20 h-28 rounded-lg object-cover border border-white/10 flex-shrink-0" />
+                        ) : (
+                          <div className="w-20 h-28 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-3xl flex-shrink-0">🎬</div>
+                        )}
+                        <div className="flex-1 flex flex-col gap-2">
+                          <div>
+                            <div className="font-semibold text-white">{sug.title}</div>
+                            <div className="text-xs text-slate-400 flex gap-2 mt-1">
+                              {sug.date && <span>📅 {sug.date.slice(0,4)}</span>}
+                              <span>ID: {sug.id}</span>
+                              {sug.vote ? <span>⭐ {sug.vote.toFixed(1)}</span> : null}
+                            </div>
+                          </div>
+                          <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{sug.overview || "No description available"}</p>
+                          <button 
+                            className={`${primaryButton} mt-auto text-sm py-2`}
+                            onClick={async ()=>{
+                              try {
+                                await importShow(String(sug.id));
+                                setShowSearchQuery("");
+                                setShowSuggestions([]);
+                                alert(`"${sug.title}" imported successfully!`);
+                              } catch (err) {
+                                alert("Failed to import: " + err.message);
+                              }
+                            }}
+                          >
+                            ➕ Add Show
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </Card>
 
-            {shows.map(s => (
-              <Card key={s.id}>
-                <div className="flex flex-col gap-6 md:flex-row md:gap-8">
-                  <div className="w-full md:w-40 lg:w-48">
-                    {s.poster ? (
-                      <img src={s.poster} alt="poster" className="h-full w-full min-h-[12rem] rounded-2xl border border-white/10 object-cover shadow-xl shadow-black/30" />
-                    ) : (
-                      <div className="flex h-full min-h-[12rem] items-center justify-center rounded-2xl border border-dashed border-white/10 text-xs text-slate-500">
-                        No poster yet
-                      </div>
+            {/* Shows Library */}
+            {shows.length > 0 && (
+              <Card>
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <SectionTitle>📺 Your TV Shows</SectionTitle>
+                    <p className="text-sm text-slate-400 mt-1">{shows.length} series in your library</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      className={`${inputClass} w-64`}
+                      placeholder="Search shows..."
+                      value={showSearchFilter}
+                      onChange={(e) => setShowSearchFilter(e.target.value)}
+                    />
+                    {selectedShows.size > 0 && (
+                      <button
+                        className={dangerButton}
+                        onClick={() => {
+                          if (window.confirm(`Delete ${selectedShows.size} selected show${selectedShows.size > 1 ? 's' : ''}?`)) {
+                            setShows(ss => ss.filter(s => !selectedShows.has(s.id)));
+                            setSelectedShows(new Set());
+                          }
+                        }}
+                      >
+                        🗑️ Delete ({selectedShows.size})
+                      </button>
                     )}
                   </div>
-                  <div className="flex-1 space-y-6">
-                    <div className="grid gap-4 lg:grid-cols-12">
-                      <div className="space-y-4 lg:col-span-7">
-                        <div>
-                          <label className="block text-xs uppercase tracking-wide text-slate-400">Title</label>
-                          <input className={`${inputClass} mt-2`} value={s.title} onChange={e=>setShowPatch(s.id,{title:e.target.value})} />
-                        </div>
-                        <div>
-                          <label className="block text-xs uppercase tracking-wide text-slate-400">Overview</label>
-                          <textarea className={`${textareaClass} mt-2`} value={s.overview || ""} onChange={e=>setShowPatch(s.id,{overview:e.target.value})} />
-                        </div>
-                      </div>
-                      <div className="space-y-4 lg:col-span-5">
-                        <div>
-                          <label className="block text-xs uppercase tracking-wide text-slate-400">Playlist group</label>
-                          <input className={`${inputClass} mt-2`} placeholder="Defaults to TV Shows" value={s.group || ""} onChange={e=>setShowPatch(s.id,{group:e.target.value})} />
-                        </div>
-                        <div>
-                          <label className="block text-xs uppercase tracking-wide text-slate-400">Poster URL</label>
-                          <input className={`${inputClass} mt-2`} placeholder="https://…" value={s.poster || ""} onChange={e=>setShowPatch(s.id,{poster:e.target.value})} />
-                        </div>
-                        <div>
-                          <label className="block text-xs uppercase tracking-wide text-slate-400">TMDB ID</label>
-                          <div className="mt-2 rounded-2xl border border-white/5 bg-slate-950/60 px-4 py-3 text-sm text-slate-400">{s.tmdbId}</div>
-                        </div>
-                      </div>
-                    </div>
+                </div>
 
-                    <div className="grid items-start gap-4 lg:grid-cols-12">
-                      <div className="space-y-2 lg:col-span-7">
-                        <label className="block text-xs uppercase tracking-wide text-slate-400">Episode URL pattern</label>
-                        <input className={`${inputClass} mt-2`} placeholder="e.g. https://cdn/show/S{s2}E{e2}.m3u8" value={s.pattern || ""} onChange={e=>setShowPatch(s.id,{pattern:e.target.value})} />
-                        <p className="text-xs text-slate-500">Use tokens like {"{s2}"} or {"{e2}"} to auto-build episode links.</p>
-                      </div>
-                      <div className="flex flex-wrap justify-end gap-3 lg:col-span-5">
-                        <button className={ghostButton} onClick={()=>{
-                          const inputs = [
-                            document.getElementById(`samp1-${s.id}`)?.value,
-                            document.getElementById(`samp2-${s.id}`)?.value,
-                            document.getElementById(`samp3-${s.id}`)?.value,
-                          ].map(v => v?.trim()).filter(Boolean);
-                          if (inputs.length < 2) {
-                            alert("Add at least two sample episode URLs in the helper section to guess a pattern.");
-                            return;
-                          }
-                          guessPattern(s.id, inputs);
-                        }}>Guess pattern</button>
-                        <button className={secondaryButton} onClick={()=>fillShowUrls(s.id)}>Fill missing URLs</button>
-                        <button className={dangerButton} onClick={()=>setShows(ss=>ss.filter(x=>x.id!==s.id))}>Remove show</button>
-                      </div>
-                    </div>
-
-                    <details className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50">
-                      <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-200 hover:text-white">Sample URLs helper</summary>
-                      <div className="grid gap-3 px-4 pb-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <input id={`samp1-${s.id}`} className={inputClass} placeholder="Sample URL 1" />
-                        <input id={`samp2-${s.id}`} className={inputClass} placeholder="Sample URL 2" />
-                        <input id={`samp3-${s.id}`} className={inputClass} placeholder="Sample URL 3 (optional)" />
-                        <p className="sm:col-span-2 lg:col-span-3 text-xs text-slate-500">Provide streams from consecutive episodes so we can recognise the pattern.</p>
-                      </div>
-                    </details>
-
-                    <div className="flex items-center gap-3">
-                      <span className="px-3 py-1 rounded-full bg-aurora/20 text-aurora text-xs font-semibold">{(s.seasons || []).length} Seasons</span>
-                      <span className="text-xs text-slate-400">Episodes: {(s.seasons || []).reduce((acc, sea)=>acc+(sea.episodes?.length||0),0)}</span>
-                    </div>
-
-                    <div className="space-y-4">
-                      {s.seasons.sort((a,b)=>a.season-b.season).map(sea => (
-                        <details key={sea.season} className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50">
-                          <summary className="cursor-pointer select-none font-medium px-4 py-3 text-slate-200 text-sm hover:text-white">Season {sea.season} · {sea.episodes.length} episodes</summary>
-                          <div className="mt-2 grid gap-3 px-4 pb-4">
-                            {sea.episodes.sort((a,b)=>a.episode-b.episode).map(ep => (
-                              <div key={ep.episode} className="grid md:grid-cols-12 gap-3 items-center rounded-2xl border border-white/10 bg-slate-950/60 p-3 shadow-inner shadow-black/20">
-                                <div className="md:col-span-2 text-sm font-medium text-slate-200">E{pad(ep.episode)} {ep.title || "Episode"}</div>
-                                <input className={`md:col-span-8 ${inputClass}`} placeholder="Stream URL" value={ep.url || ""} onChange={e=>{
-                                  setShows(ss=>ss.map(sss=>{
-                                    if(sss.id!==s.id) return sss;
-                                    return {...sss, seasons: sss.seasons.map(x=> x.season===sea.season ? {...x, episodes: x.episodes.map(y=> y.episode===ep.episode ? {...y, url: e.target.value} : y)} : x)};
-                                  }));
-                                }} />
-                                <button className={`md:col-span-2 w-full ${ghostButton}`} onClick={()=>{
-                                  setShows(ss=>ss.map(sss=>{
-                                    if(sss.id!==s.id) return sss;
-                                    const url = sss.pattern ? fillPattern(sss.pattern, sea.season, ep.episode) : (ep.url||"");
-                                    return {...sss, seasons: sss.seasons.map(x=> x.season===sea.season ? {...x, episodes: x.episodes.map(y=> y.episode===ep.episode ? {...y, url} : y)} : x)};
-                                  }));
-                                }}>Derive</button>
+                <div className="space-y-4">
+                  {shows.filter(s => {
+                    if (!showSearchFilter.trim()) return true;
+                    const search = showSearchFilter.toLowerCase();
+                    return s.title?.toLowerCase().includes(search);
+                  }).map(show => {
+                    const totalEpisodes = show.seasons?.reduce((sum, season) => sum + (season.episodes?.length || 0), 0) || 0;
+                    const episodesWithUrls = show.seasons?.reduce((sum, season) => 
+                      sum + (season.episodes?.filter(ep => ep.url).length || 0), 0) || 0;
+                    
+                    return (
+                      <div key={show.id} className="rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all">
+                        <div className="flex gap-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedShows.has(show.id)}
+                            onChange={(e) => {
+                              const newSelected = new Set(selectedShows);
+                              if (e.target.checked) {
+                                newSelected.add(show.id);
+                              } else {
+                                newSelected.delete(show.id);
+                              }
+                              setSelectedShows(newSelected);
+                            }}
+                            className="mt-1 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+                          />
+                          
+                          {show.poster ? (
+                            <img src={show.poster} alt="" className="w-16 h-24 rounded-lg object-cover border border-white/10 flex-shrink-0" />
+                          ) : (
+                            <div className="w-16 h-24 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-2xl flex-shrink-0">🎬</div>
+                          )}
+                          
+                          <div className="flex-1 space-y-3">
+                            <div>
+                              <div className="flex items-start justify-between gap-4">
+                                <div>
+                                  <div className="text-lg font-bold text-white">{show.title}</div>
+                                  <div className="text-xs text-slate-400 mt-1 flex gap-3">
+                                    <span>TMDB #{show.tmdbId}</span>
+                                    <span>📺 {show.seasons?.length || 0} season{show.seasons?.length !== 1 ? 's' : ''}</span>
+                                    <span>🎬 {totalEpisodes} episode{totalEpisodes !== 1 ? 's' : ''}</span>
+                                    <span className={episodesWithUrls === totalEpisodes ? "text-green-400" : "text-yellow-400"}>
+                                      🔗 {episodesWithUrls}/{totalEpisodes} linked
+                                    </span>
+                                  </div>
+                                </div>
+                                <button
+                                  className="text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0"
+                                  onClick={() => {
+                                    if (window.confirm(`Delete "${show.title}"?`)) {
+                                      setShows(ss => ss.filter(s => s.id !== show.id));
+                                    }
+                                  }}
+                                >
+                                  🗑️ Remove
+                                </button>
                               </div>
-                            ))}
+                              
+                              {show.overview && (
+                                <p className="text-sm text-slate-400 mt-2 line-clamp-2">{show.overview}</p>
+                              )}
+                            </div>
+
+                            {/* Group Input */}
+                            <div className="flex gap-3 items-center">
+                              <label className="text-xs text-slate-400 font-semibold">Group:</label>
+                              <input
+                                className={`${inputClass} flex-1 max-w-xs py-2 text-sm`}
+                                placeholder="e.g., TV Shows, Series, etc."
+                                value={show.group || ""}
+                                onChange={(e) => setShowPatch(show.id, { group: e.target.value })}
+                              />
+                            </div>
+
+                            {/* URL Pattern Section */}
+                            <details className="group">
+                              <summary className="cursor-pointer text-sm font-semibold text-aurora hover:text-sky-400 flex items-center gap-2">
+                                <span>⚙️ Configure Episode URLs</span>
+                                <span className="text-xs text-slate-500">({show.pattern ? "Pattern set" : "Not configured"})</span>
+                              </summary>
+                              <div className="mt-4 space-y-3 p-4 rounded-lg bg-slate-900/60 border border-white/5">
+                                <div>
+                                  <label className="block text-xs font-semibold text-slate-400 mb-2">URL Pattern</label>
+                                  <input
+                                    className={inputClass}
+                                    placeholder="e.g., https://cdn.example.com/show/{season}/{episode}.mp4"
+                                    value={show.pattern || ""}
+                                    onChange={(e) => setShowPatch(show.id, { pattern: e.target.value })}
+                                  />
+                                  <p className="text-xs text-slate-500 mt-2">
+                                    Use tokens: {"{season}"}, {"{episode}"}, {"{s2}"}, {"{e2}"} (zero-padded)
+                                  </p>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    className={secondaryButton}
+                                    onClick={() => {
+                                      const samples = prompt("Paste 2-3 sample URLs (one per line):");
+                                      if (samples) {
+                                        guessPattern(show.id, samples.split("\n"));
+                                      }
+                                    }}
+                                  >
+                                    🔮 Auto-detect Pattern
+                                  </button>
+                                  <button
+                                    className={primaryButton}
+                                    onClick={() => {
+                                      if (show.pattern) {
+                                        fillShowUrls(show.id);
+                                        alert("Episode URLs generated from pattern!");
+                                      } else {
+                                        alert("Please set a URL pattern first");
+                                      }
+                                    }}
+                                  >
+                                    ✨ Generate URLs
+                                  </button>
+                                </div>
+                              </div>
+                            </details>
+
+                            {/* Seasons Overview */}
+                            <details>
+                              <summary className="cursor-pointer text-sm font-semibold text-slate-300 hover:text-white flex items-center gap-2">
+                                📋 View Seasons & Episodes
+                              </summary>
+                              <div className="mt-3 space-y-2 max-h-60 overflow-y-auto">
+                                {show.seasons?.map(season => (
+                                  <div key={season.season} className="text-xs bg-slate-900/40 rounded-lg p-3 border border-white/5">
+                                    <div className="font-semibold text-white mb-1">
+                                      Season {season.season} - {season.episodes?.length || 0} episodes
+                                    </div>
+                                    <div className="text-slate-400 space-y-1">
+                                      {season.episodes?.slice(0, 5).map(ep => (
+                                        <div key={ep.episode} className="flex items-center gap-2">
+                                          <span className={ep.url ? "text-green-400" : "text-slate-500"}>
+                                            {ep.url ? "✓" : "○"}
+                                          </span>
+                                          <span>E{String(ep.episode).padStart(2, "0")}: {ep.title}</span>
+                                        </div>
+                                      ))}
+                                      {season.episodes && season.episodes.length > 5 && (
+                                        <div className="text-slate-500 italic">...and {season.episodes.length - 5} more</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
                           </div>
-                        </details>
-                      ))}
-                    </div>
-                  </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </Card>
-            ))}
+            )}
+
+            {shows.length === 0 && (
+              <Card>
+                <div className="text-center py-16">
+                  <div className="text-6xl mb-4">🎬</div>
+                  <p className="text-xl font-semibold text-white mb-2">No TV Shows Yet</p>
+                  <p className="text-slate-400">Search and add your first TV series to get started</p>
+                </div>
+              </Card>
+            )}
           </div>
         )}
 
         {active === "movies" && (
           <div className="space-y-6">
+            {/* Import Section */}
             <Card>
-              <div className="space-y-4">
-                <SectionTitle>Import Movie</SectionTitle>
-                <p className="text-sm text-slate-400 max-w-3xl">
-                  Find films by name or paste a TMDB ID. Suggestions help you grab the right entry without leaving the builder.
-                </p>
-                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                  <div>
-                    <label className="block text-xs uppercase tracking-wide text-slate-400">Search TMDB</label>
-                    <input
-                      className={`${inputClass} mt-2`}
-                      placeholder="e.g. Fight Club or 550"
-                      value={movieSearchQuery}
-                      onChange={(e)=>setMovieSearchQuery(e.target.value)}
-                    />
-                    <p className="mt-2 text-xs text-slate-500">
-                      {apiKey ? "Suggestions appear after typing two characters." : "Add your TMDB API key above to enable name search."}
-                    </p>
-                  </div>
-                  <button
-                    className={`${primaryButton} disabled:opacity-50 disabled:cursor-not-allowed`}
-                    disabled={!movieSearchQuery.trim()}
-                    onClick={async ()=>{
-                      const val = movieSearchQuery.trim();
-                      if (!val) return;
-                      if (!/^\d+$/.test(val)) {
-                        alert("Importing by ID expects a numeric TMDB identifier. Pick a suggestion below or paste an ID.");
-                        return;
-                      }
+              <SectionTitle 
+                subtitle="Search TMDB by name or import by ID to add movies with metadata"
+              >
+                🎥 Add Movie
+              </SectionTitle>
+              <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+                <div className="space-y-3">
+                  <label className="block text-sm font-semibold text-slate-300">Search TMDB</label>
+                  <input
+                    className={inputClass}
+                    placeholder="e.g., Inception, The Matrix, or TMDB ID like 550"
+                    value={movieSearchQuery}
+                    onChange={(e)=>setMovieSearchQuery(e.target.value)}
+                  />
+                  <p className="text-xs text-slate-500 flex items-start gap-2">
+                    <span className="text-aurora">💡</span>
+                    <span>{apiKey ? "Type to search or enter numeric TMDB ID" : "Add your TMDB API key to enable search"}</span>
+                  </p>
+                </div>
+                <button
+                  className={primaryButton}
+                  disabled={!movieSearchQuery.trim() || !apiKey}
+                  onClick={async ()=>{
+                    const val = movieSearchQuery.trim();
+                    if (!val) return;
+                    if (!/^\d+$/.test(val)) {
+                      alert("To import by ID, enter a numeric TMDB identifier. Or select from suggestions below.");
+                      return;
+                    }
+                    try {
                       await importMovie(val);
                       setMovieSearchQuery("");
                       setMovieSuggestions([]);
-                    }}
-                  >
-                    Import by ID
-                  </button>
+                      alert("Movie imported successfully!");
+                    } catch (err) {
+                      alert("Failed to import movie: " + err.message);
+                    }
+                  }}
+                >
+                  {movieSearchQuery.trim() && /^\d+$/.test(movieSearchQuery.trim()) ? "📥 Import by ID" : "🔍 Search"}
+                </button>
+              </div>
+              {movieSearchBusy && apiKey && (
+                <div className="mt-4 flex items-center gap-3 text-sm text-aurora">
+                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                  </svg>
+                  <span>Searching TMDB...</span>
                 </div>
-                {movieSearchBusy && apiKey && (
-                  <div className="text-xs text-aurora/80">Searching TMDB…</div>
-                )}
-                {apiKey && movieSuggestions.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="text-xs uppercase tracking-wide text-slate-400">Suggestions</div>
-                    <div className="grid gap-3">
-                      {movieSuggestions.map(sug => (
-                        <div key={sug.id} className="flex gap-4 rounded-2xl border border-white/10 bg-slate-950/60 p-4">
-                          {sug.poster ? (
-                            <img src={sug.poster} alt="" className="w-16 h-24 rounded-xl object-cover border border-white/10" />
-                          ) : (
-                            <div className="w-16 h-24 rounded-xl border border-dashed border-white/10 flex items-center justify-center text-[10px] text-slate-500">
-                              No art
+              )}
+              {apiKey && movieSuggestions.length > 0 && (
+                <div className="mt-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-white">Search Results</div>
+                    <div className="text-xs text-slate-500">{movieSuggestions.length} found</div>
+                  </div>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {movieSuggestions.map(sug => (
+                      <div key={sug.id} className="flex gap-4 rounded-xl border border-white/10 bg-slate-800/40 p-4 hover:border-aurora/30 transition-all">
+                        {sug.poster ? (
+                          <img src={sug.poster} alt="" className="w-20 h-28 rounded-lg object-cover border border-white/10 flex-shrink-0" />
+                        ) : (
+                          <div className="w-20 h-28 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-3xl flex-shrink-0">🎥</div>
+                        )}
+                        <div className="flex-1 flex flex-col gap-2">
+                          <div>
+                            <div className="font-semibold text-white">{sug.title}</div>
+                            <div className="text-xs text-slate-400 flex gap-2 mt-1">
+                              {sug.date && <span>📅 {sug.date.slice(0,4)}</span>}
+                              <span>ID: {sug.id}</span>
+                              {sug.vote ? <span>⭐ {sug.vote.toFixed(1)}</span> : null}
                             </div>
-                          )}
-                          <div className="flex-1">
-                            <div className="flex items-start justify-between gap-3">
+                          </div>
+                          <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{sug.overview || "No description available"}</p>
+                          <button 
+                            className={`${primaryButton} mt-auto text-sm py-2`}
+                            onClick={async ()=>{
+                              try {
+                                await importMovie(String(sug.id));
+                                setMovieSearchQuery("");
+                                setMovieSuggestions([]);
+                                alert(`"${sug.title}" imported successfully!`);
+                              } catch (err) {
+                                alert("Failed to import: " + err.message);
+                              }
+                            }}
+                          >
+                            ➕ Add Movie
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            {/* Movies Library */}
+            {movies.length > 0 && (
+              <Card>
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <SectionTitle>🎬 Your Movies</SectionTitle>
+                    <p className="text-sm text-slate-400 mt-1">{movies.length} films in your library</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      className={`${inputClass} w-64`}
+                      placeholder="Search movies..."
+                      value={movieSearchFilter}
+                      onChange={(e) => setMovieSearchFilter(e.target.value)}
+                    />
+                    {selectedMovies.size > 0 && (
+                      <button
+                        className={dangerButton}
+                        onClick={() => {
+                          if (window.confirm(`Delete ${selectedMovies.size} selected movie${selectedMovies.size > 1 ? 's' : ''}?`)) {
+                            setMovies(ms => ms.filter(m => !selectedMovies.has(m.id)));
+                            setSelectedMovies(new Set());
+                          }
+                        }}
+                      >
+                        🗑️ Delete ({selectedMovies.size})
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {movies.filter(m => {
+                    if (!movieSearchFilter.trim()) return true;
+                    const search = movieSearchFilter.toLowerCase();
+                    return m.title?.toLowerCase().includes(search);
+                  }).map(movie => (
+                    <div key={movie.id} className="rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all">
+                      <div className="flex gap-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedMovies.has(movie.id)}
+                          onChange={(e) => {
+                            const newSelected = new Set(selectedMovies);
+                            if (e.target.checked) {
+                              newSelected.add(movie.id);
+                            } else {
+                              newSelected.delete(movie.id);
+                            }
+                            setSelectedMovies(newSelected);
+                          }}
+                          className="mt-1 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+                        />
+                        
+                        {movie.poster ? (
+                          <img src={movie.poster} alt="" className="w-16 h-24 rounded-lg object-cover border border-white/10 flex-shrink-0" />
+                        ) : (
+                          <div className="w-16 h-24 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-2xl flex-shrink-0">🎥</div>
+                        )}
+                        
+                        <div className="flex-1 space-y-3">
+                          <div>
+                            <div className="flex items-start justify-between gap-4">
                               <div>
-                                <div className="text-sm font-semibold text-white">{sug.title}</div>
-                                <div className="text-xs text-slate-400 mt-1 flex gap-2">
-                                  <span>{sug.date ? sug.date.slice(0,4) : "—"}</span>
-                                  <span>TMDB #{sug.id}</span>
-                                  {sug.vote ? <span>★ {sug.vote.toFixed(1)}</span> : null}
+                                <div className="text-lg font-bold text-white">{movie.title}</div>
+                                <div className="text-xs text-slate-400 mt-1 flex gap-3">
+                                  <span>TMDB #{movie.tmdbId}</span>
+                                  <span className={movie.url ? "text-green-400" : "text-yellow-400"}>
+                                    {movie.url ? "🔗 URL set" : "⚠️ No URL"}
+                                  </span>
                                 </div>
                               </div>
                               <button
-                                className={primaryButton}
-                                onClick={async ()=>{
-                                  await importMovie(String(sug.id));
-                                  setMovieSearchQuery("");
-                                  setMovieSuggestions([]);
+                                className="text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0"
+                                onClick={() => {
+                                  if (window.confirm(`Delete "${movie.title}"?`)) {
+                                    setMovies(ms => ms.filter(m => m.id !== movie.id));
+                                  }
                                 }}
                               >
-                                Add movie
+                                🗑️ Remove
                               </button>
                             </div>
-                            <p className="mt-2 text-xs text-slate-400 leading-relaxed line-clamp-3">{sug.overview}</p>
+                            
+                            {movie.overview && (
+                              <p className="text-sm text-slate-400 mt-2 line-clamp-2">{movie.overview}</p>
+                            )}
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Card>
 
-            {movies.map(m => (
-              <Card key={m.id}>
-                <div className="flex flex-col gap-6 md:flex-row md:gap-8">
-                  <div className="w-full md:w-40 lg:w-48">
-                    {m.poster ? (
-                      <img src={m.poster} alt="poster" className="h-full w-full min-h-[12rem] rounded-2xl border border-white/10 object-cover shadow-xl shadow-black/30" />
-                    ) : (
-                      <div className="flex h-full min-h-[12rem] items-center justify-center rounded-2xl border border-dashed border-white/10 text-xs text-slate-500">No poster yet</div>
-                    )}
-                  </div>
-                  <div className="flex-1 space-y-6">
-                    <div className="grid gap-4 lg:grid-cols-12">
-                      <div className="space-y-4 lg:col-span-7">
-                        <div>
-                          <label className="block text-xs uppercase tracking-wide text-slate-400">Title</label>
-                          <input className={`${inputClass} mt-2`} value={m.title} onChange={e=>setMoviePatch(m.id,{title:e.target.value})} />
-                        </div>
-                        <div>
-                          <label className="block text-xs uppercase tracking-wide text-slate-400">Overview</label>
-                          <textarea className={`${textareaClass} mt-2`} value={m.overview || ""} onChange={e=>setMoviePatch(m.id,{overview:e.target.value})} />
-                        </div>
-                      </div>
-                      <div className="space-y-4 lg:col-span-5">
-                        <div>
-                          <label className="block text-xs uppercase tracking-wide text-slate-400">Playlist group</label>
-                          <input className={`${inputClass} mt-2`} placeholder="Defaults to Movies" value={m.group || ""} onChange={e=>setMoviePatch(m.id,{group:e.target.value})} />
-                        </div>
-                        <div>
-                          <label className="block text-xs uppercase tracking-wide text-slate-400">Poster URL</label>
-                          <input className={`${inputClass} mt-2`} placeholder="https://…" value={m.poster || ""} onChange={e=>setMoviePatch(m.id,{poster:e.target.value})} />
-                        </div>
-                        <div>
-                          <label className="block text-xs uppercase tracking-wide text-slate-400">TMDB ID</label>
-                          <div className="mt-2 rounded-2xl border border-white/5 bg-slate-950/60 px-4 py-3 text-sm text-slate-400">{m.tmdbId}</div>
-                        </div>
-                      </div>
-                    </div>
+                          {/* Stream URL */}
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-400 mb-2">Stream URL</label>
+                            <input
+                              className={inputClass}
+                              placeholder="https://cdn.example.com/movies/movie.mp4"
+                              value={movie.url || ""}
+                              onChange={(e) => setMoviePatch(movie.id, { url: e.target.value })}
+                            />
+                          </div>
 
-                    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                      <div className="md:flex-1">
-                        <label className="block text-xs uppercase tracking-wide text-slate-400">Stream URL</label>
-                        <input className={`${inputClass} mt-2`} placeholder="https://your-cdn/movie-title/stream.m3u8" value={m.url || ""} onChange={e=>setMoviePatch(m.id,{url:e.target.value})} />
-                      </div>
-                      <div className="flex gap-3 md:w-auto">
-                        <button className={`${dangerButton} w-full md:w-auto`} onClick={()=>setMovies(ms=>ms.filter(x=>x.id!==m.id))}>Remove movie</button>
+                          {/* Group Input */}
+                          <div className="flex gap-3 items-center">
+                            <label className="text-xs text-slate-400 font-semibold">Group:</label>
+                            <input
+                              className={`${inputClass} flex-1 max-w-xs py-2 text-sm`}
+                              placeholder="e.g., Movies, Films, VOD"
+                              value={movie.group || ""}
+                              onChange={(e) => setMoviePatch(movie.id, { group: e.target.value })}
+                            />
+                          </div>
+
+                          {/* Additional Details - Collapsible */}
+                          <details>
+                            <summary className="cursor-pointer text-sm font-semibold text-slate-300 hover:text-white flex items-center gap-2">
+                              ⚙️ Advanced Settings
+                            </summary>
+                            <div className="mt-3 space-y-3 p-4 rounded-lg bg-slate-900/60 border border-white/5">
+                              <div>
+                                <label className="block text-xs font-semibold text-slate-400 mb-2">Poster URL</label>
+                                <input
+                                  className={inputClass}
+                                  placeholder="https://image.tmdb.org/t/p/w342/..."
+                                  value={movie.poster || ""}
+                                  onChange={(e) => setMoviePatch(movie.id, { poster: e.target.value })}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-semibold text-slate-400 mb-2">Overview/Description</label>
+                                <textarea
+                                  className={textareaClass}
+                                  placeholder="Movie description..."
+                                  value={movie.overview || ""}
+                                  onChange={(e) => setMoviePatch(movie.id, { overview: e.target.value })}
+                                />
+                              </div>
+                            </div>
+                          </details>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ))}
                 </div>
               </Card>
-            ))}
+            )}
+
+            {movies.length === 0 && (
+              <Card>
+                <div className="text-center py-16">
+                  <div className="text-6xl mb-4">🎥</div>
+                  <p className="text-xl font-semibold text-white mb-2">No Movies Yet</p>
+                  <p className="text-slate-400">Search and add your first movie to get started</p>
+                </div>
+              </Card>
+            )}
           </div>
         )}
 
