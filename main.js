@@ -22055,6 +22055,10 @@
         setToasts((prev) => prev.filter((t) => t.id !== id));
       }, 5e3);
     }, []);
+    const [streamHealthStatus, setStreamHealthStatus] = (0, import_react.useState)(() => readLS("m3u_stream_health", {}));
+    const [healthCheckActive, setHealthCheckActive] = (0, import_react.useState)(false);
+    const [healthCheckProgress, setHealthCheckProgress] = (0, import_react.useState)({ checked: 0, total: 0, working: 0, failed: 0 });
+    const healthCheckAbortController = (0, import_react.useRef)(null);
     const [channelSearchQuery, setChannelSearchQuery] = (0, import_react.useState)("");
     const [channelGroupFilter, setChannelGroupFilter] = (0, import_react.useState)("all");
     const [showSearchFilter, setShowSearchFilter] = (0, import_react.useState)("");
@@ -22175,6 +22179,7 @@
     (0, import_react.useEffect)(() => saveLS("m3u_library_url", libraryUrl), [libraryUrl]);
     (0, import_react.useEffect)(() => saveLS("m3u_epg_sources", epgSources), [epgSources]);
     (0, import_react.useEffect)(() => saveLS("m3u_epg_mappings", epgMappings), [epgMappings]);
+    (0, import_react.useEffect)(() => saveLS("m3u_stream_health", streamHealthStatus), [streamHealthStatus]);
     (0, import_react.useEffect)(() => {
       if (!m3u) return;
       let cancelled = false;
@@ -22432,6 +22437,95 @@
       } finally {
         setLibraryLoading(false);
       }
+    };
+    const checkStreamHealth = async (url, timeout = 5e3) => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        const response = await fetch(`/proxy?url=${encodeURIComponent(url)}`, {
+          method: "HEAD",
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return {
+          status: response.ok ? "working" : "failed",
+          statusCode: response.status,
+          checkedAt: Date.now()
+        };
+      } catch (err) {
+        return {
+          status: "failed",
+          error: err.message || "Connection failed",
+          checkedAt: Date.now()
+        };
+      }
+    };
+    const checkAllStreams = async () => {
+      const streams = [];
+      channels.forEach((ch) => {
+        if (ch.url) streams.push({ type: "channel", id: ch.id, url: ch.url, name: ch.name });
+      });
+      movies.forEach((m) => {
+        if (m.url) streams.push({ type: "movie", id: m.id, url: m.url, name: m.title });
+      });
+      shows.forEach((show) => {
+        show.seasons?.forEach((season) => {
+          season.episodes?.forEach((ep) => {
+            if (ep.url) {
+              streams.push({
+                type: "episode",
+                id: `${show.id}-s${season.season}e${ep.episode}`,
+                url: ep.url,
+                name: `${show.title} S${season.season}E${ep.episode}`
+              });
+            }
+          });
+        });
+      });
+      if (streams.length === 0) {
+        showToast("No streams to check", "error");
+        return;
+      }
+      setHealthCheckActive(true);
+      setHealthCheckProgress({ checked: 0, total: streams.length, working: 0, failed: 0 });
+      healthCheckAbortController.current = new AbortController();
+      const results = {};
+      let checked = 0;
+      let working = 0;
+      let failed = 0;
+      const batchSize = 5;
+      for (let i = 0; i < streams.length; i += batchSize) {
+        if (healthCheckAbortController.current.signal.aborted) break;
+        const batch = streams.slice(i, i + batchSize);
+        const batchResults = await Promise.all(
+          batch.map((stream) => checkStreamHealth(stream.url).then((result) => ({ stream, result })))
+        );
+        batchResults.forEach(({ stream, result }) => {
+          results[stream.id] = { ...result, url: stream.url, name: stream.name, type: stream.type };
+          checked++;
+          if (result.status === "working") working++;
+          else failed++;
+        });
+        setHealthCheckProgress({ checked, total: streams.length, working, failed });
+        setStreamHealthStatus((prev) => ({ ...prev, ...results }));
+      }
+      setHealthCheckActive(false);
+      if (!healthCheckAbortController.current.signal.aborted) {
+        showToast(
+          `Health check complete! ${working} working, ${failed} failed out of ${streams.length} streams`,
+          failed === 0 ? "success" : "info"
+        );
+      }
+    };
+    const stopHealthCheck = () => {
+      if (healthCheckAbortController.current) {
+        healthCheckAbortController.current.abort();
+        setHealthCheckActive(false);
+        showToast("Health check stopped", "info");
+      }
+    };
+    const getStreamHealth = (id) => {
+      return streamHealthStatus[id];
     };
     const matchLibraryMovie = async (movie) => {
       if (!apiKey) return showToast("Add your TMDB API key first", "error");
@@ -22835,7 +22929,23 @@
       },
       /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, "\u{1F511}"),
       /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white group-hover:text-aurora transition-colors" }, "Copy API Key"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400 mt-1" }, "Copy TMDB API key to clipboard"))
-    ))), channelImports.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, { subtitle: "Recently imported playlists" }, "\u{1F552} Recent Imports"), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-3" }, channelImports.slice(0, 5).map((imp) => {
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: healthCheckActive ? stopHealthCheck : checkAllStreams,
+        disabled: channels.length === 0 && movies.length === 0 && shows.length === 0,
+        className: "flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-purple-500/40 hover:bg-slate-800/80 transition-all text-left group disabled:opacity-50 disabled:cursor-not-allowed"
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, healthCheckActive ? "\u23F9\uFE0F" : "\u{1F50D}"),
+      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white group-hover:text-purple-400 transition-colors" }, healthCheckActive ? "Stop Health Check" : "Check Stream Health"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400 mt-1" }, healthCheckActive ? `Checking... ${healthCheckProgress.checked}/${healthCheckProgress.total}` : "Verify all stream links are working"))
+    ))), Object.keys(streamHealthStatus).length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, { subtitle: "Overview of stream availability" }, "\u{1F48A} Stream Health Status"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-3 gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "p-5 rounded-xl bg-green-500/10 border border-green-500/30" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3 mb-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, "\u2705"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-green-300" }, "Working")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-green-300" }, Object.values(streamHealthStatus).filter((s) => s.status === "working").length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-green-400/60 mt-1" }, "Streams online")), /* @__PURE__ */ import_react.default.createElement("div", { className: "p-5 rounded-xl bg-red-500/10 border border-red-500/30" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3 mb-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, "\u274C"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-red-300" }, "Failed")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-red-300" }, Object.values(streamHealthStatus).filter((s) => s.status === "failed").length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-red-400/60 mt-1" }, "Streams offline")), /* @__PURE__ */ import_react.default.createElement("div", { className: "p-5 rounded-xl bg-slate-500/10 border border-slate-500/30" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3 mb-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, "\u{1F4CA}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-slate-300" }, "Last Check")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-bold text-slate-300" }, (() => {
+      const lastCheck = Math.max(...Object.values(streamHealthStatus).map((s) => s.checkedAt || 0));
+      if (!lastCheck) return "Never";
+      const mins = Math.floor((Date.now() - lastCheck) / 6e4);
+      if (mins < 1) return "Just now";
+      if (mins < 60) return `${mins}m ago`;
+      return `${Math.floor(mins / 60)}h ago`;
+    })()), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-1" }, "Time since check")))), channelImports.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, { subtitle: "Recently imported playlists" }, "\u{1F552} Recent Imports"), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-3" }, channelImports.slice(0, 5).map((imp) => {
       const linkedChannels = channelsByImport.get(imp.id) || [];
       const importDate = imp.createdAt ? new Date(imp.createdAt).toLocaleDateString() : "";
       return /* @__PURE__ */ import_react.default.createElement("div", { key: imp.id, className: "flex items-center justify-between p-4 rounded-xl bg-slate-800/40 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "w-10 h-10 rounded-lg bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center" }, "\u2713"), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white text-sm" }, imp.name), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, linkedChannels.length, " channels \xB7 ", importDate))), /* @__PURE__ */ import_react.default.createElement(
@@ -22990,11 +23100,12 @@
         },
         className: "rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
       }
-    )), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "#"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "Channel"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "Stream URL"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "Group"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-right font-semibold" }, "Actions"))), /* @__PURE__ */ import_react.default.createElement("tbody", { className: "divide-y divide-white/5 text-slate-200" }, channels.map((c, idx) => {
+    )), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "#"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "Channel"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "Stream URL"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "Group"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-center font-semibold" }, "Health"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-right font-semibold" }, "Actions"))), /* @__PURE__ */ import_react.default.createElement("tbody", { className: "divide-y divide-white/5 text-slate-200" }, channels.map((c, idx) => {
       const searchLower = channelSearchQuery.toLowerCase();
       const matchesSearch = !searchLower || c.name?.toLowerCase().includes(searchLower) || c.url?.toLowerCase().includes(searchLower);
       const matchesGroup = channelGroupFilter === "all" || (c.group || "Uncategorized") === channelGroupFilter;
       if (!matchesSearch || !matchesGroup) return null;
+      const health = getStreamHealth(c.id);
       return /* @__PURE__ */ import_react.default.createElement("tr", { key: `${c.id}-row`, className: "hover:bg-slate-900/60 transition-colors" }, /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle" }, /* @__PURE__ */ import_react.default.createElement(
         "input",
         {
@@ -23022,7 +23133,7 @@
         },
         c.url,
         /* @__PURE__ */ import_react.default.createElement("svg", { className: "w-3 h-3", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24" }, /* @__PURE__ */ import_react.default.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" }))
-      ) : /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-500" }, "No stream URL")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-1 rounded-md text-xs font-medium bg-slate-800/60 text-slate-300" }, c.group || "Uncategorized")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle text-right" }, /* @__PURE__ */ import_react.default.createElement(
+      ) : /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-500" }, "No stream URL")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-1 rounded-md text-xs font-medium bg-slate-800/60 text-slate-300" }, c.group || "Uncategorized")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle text-center" }, health ? /* @__PURE__ */ import_react.default.createElement("div", { className: "inline-flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: `text-lg ${health.status === "working" ? "text-green-400" : "text-red-400"}` }, health.status === "working" ? "\u2705" : "\u274C"), /* @__PURE__ */ import_react.default.createElement("span", { className: `text-xs ${health.status === "working" ? "text-green-300" : "text-red-300"}` }, health.status === "working" ? "Online" : "Offline")) : /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xs text-slate-500" }, "Not checked")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle text-right" }, /* @__PURE__ */ import_react.default.createElement(
         "button",
         {
           className: "text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all",

@@ -697,6 +697,12 @@ export default function App() {
     }, 5000);
   }, []);
   
+  // Stream health checker states
+  const [streamHealthStatus, setStreamHealthStatus] = useState(() => readLS("m3u_stream_health", {}));
+  const [healthCheckActive, setHealthCheckActive] = useState(false);
+  const [healthCheckProgress, setHealthCheckProgress] = useState({ checked: 0, total: 0, working: 0, failed: 0 });
+  const healthCheckAbortController = useRef(null);
+  
   // Search and filter states
   const [channelSearchQuery, setChannelSearchQuery] = useState("");
   const [channelGroupFilter, setChannelGroupFilter] = useState("all");
@@ -824,6 +830,7 @@ export default function App() {
   useEffect(() => saveLS("m3u_library_url", libraryUrl), [libraryUrl]);
   useEffect(() => saveLS("m3u_epg_sources", epgSources), [epgSources]);
   useEffect(() => saveLS("m3u_epg_mappings", epgMappings), [epgMappings]);
+  useEffect(() => saveLS("m3u_stream_health", streamHealthStatus), [streamHealthStatus]);
   useEffect(() => {
     if (!m3u) return;
     let cancelled = false;
@@ -1092,6 +1099,118 @@ export default function App() {
     } finally {
       setLibraryLoading(false);
     }
+  };
+
+  // ----- Stream Health Checker -----
+  const checkStreamHealth = async (url, timeout = 5000) => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      
+      const response = await fetch(`/proxy?url=${encodeURIComponent(url)}`, {
+        method: 'HEAD',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      return {
+        status: response.ok ? 'working' : 'failed',
+        statusCode: response.status,
+        checkedAt: Date.now()
+      };
+    } catch (err) {
+      return {
+        status: 'failed',
+        error: err.message || 'Connection failed',
+        checkedAt: Date.now()
+      };
+    }
+  };
+
+  const checkAllStreams = async () => {
+    // Gather all stream URLs
+    const streams = [];
+    
+    // Add channels
+    channels.forEach(ch => {
+      if (ch.url) streams.push({ type: 'channel', id: ch.id, url: ch.url, name: ch.name });
+    });
+    
+    // Add movies
+    movies.forEach(m => {
+      if (m.url) streams.push({ type: 'movie', id: m.id, url: m.url, name: m.title });
+    });
+    
+    // Add show episodes
+    shows.forEach(show => {
+      show.seasons?.forEach(season => {
+        season.episodes?.forEach(ep => {
+          if (ep.url) {
+            streams.push({
+              type: 'episode',
+              id: `${show.id}-s${season.season}e${ep.episode}`,
+              url: ep.url,
+              name: `${show.title} S${season.season}E${ep.episode}`
+            });
+          }
+        });
+      });
+    });
+
+    if (streams.length === 0) {
+      showToast("No streams to check", "error");
+      return;
+    }
+
+    setHealthCheckActive(true);
+    setHealthCheckProgress({ checked: 0, total: streams.length, working: 0, failed: 0 });
+    healthCheckAbortController.current = new AbortController();
+
+    const results = {};
+    let checked = 0;
+    let working = 0;
+    let failed = 0;
+
+    // Check streams in batches of 5 to avoid overwhelming the server
+    const batchSize = 5;
+    for (let i = 0; i < streams.length; i += batchSize) {
+      if (healthCheckAbortController.current.signal.aborted) break;
+      
+      const batch = streams.slice(i, i + batchSize);
+      const batchResults = await Promise.all(
+        batch.map(stream => checkStreamHealth(stream.url).then(result => ({ stream, result })))
+      );
+
+      batchResults.forEach(({ stream, result }) => {
+        results[stream.id] = { ...result, url: stream.url, name: stream.name, type: stream.type };
+        checked++;
+        if (result.status === 'working') working++;
+        else failed++;
+      });
+
+      setHealthCheckProgress({ checked, total: streams.length, working, failed });
+      setStreamHealthStatus(prev => ({ ...prev, ...results }));
+    }
+
+    setHealthCheckActive(false);
+    
+    if (!healthCheckAbortController.current.signal.aborted) {
+      showToast(`Health check complete! ${working} working, ${failed} failed out of ${streams.length} streams`, 
+        failed === 0 ? "success" : "info");
+    }
+  };
+
+  const stopHealthCheck = () => {
+    if (healthCheckAbortController.current) {
+      healthCheckAbortController.current.abort();
+      setHealthCheckActive(false);
+      showToast("Health check stopped", "info");
+    }
+  };
+
+  const getStreamHealth = (id) => {
+    return streamHealthStatus[id];
   };
 
   const matchLibraryMovie = async (movie) => {
@@ -1737,8 +1856,77 @@ export default function App() {
                     <div className="text-sm text-slate-400 mt-1">Copy TMDB API key to clipboard</div>
                   </div>
                 </button>
+
+                <button
+                  onClick={healthCheckActive ? stopHealthCheck : checkAllStreams}
+                  disabled={channels.length === 0 && movies.length === 0 && shows.length === 0}
+                  className="flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-purple-500/40 hover:bg-slate-800/80 transition-all text-left group disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="text-3xl">{healthCheckActive ? "⏹️" : "🔍"}</div>
+                  <div>
+                    <div className="font-semibold text-white group-hover:text-purple-400 transition-colors">
+                      {healthCheckActive ? "Stop Health Check" : "Check Stream Health"}
+                    </div>
+                    <div className="text-sm text-slate-400 mt-1">
+                      {healthCheckActive 
+                        ? `Checking... ${healthCheckProgress.checked}/${healthCheckProgress.total}`
+                        : "Verify all stream links are working"
+                      }
+                    </div>
+                  </div>
+                </button>
               </div>
             </Card>
+
+            {/* Stream Health Summary */}
+            {Object.keys(streamHealthStatus).length > 0 && (
+              <Card>
+                <SectionTitle subtitle="Overview of stream availability">
+                  💊 Stream Health Status
+                </SectionTitle>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-5 rounded-xl bg-green-500/10 border border-green-500/30">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="text-3xl">✅</div>
+                      <div className="text-sm font-semibold text-green-300">Working</div>
+                    </div>
+                    <div className="text-3xl font-bold text-green-300">
+                      {Object.values(streamHealthStatus).filter(s => s.status === 'working').length}
+                    </div>
+                    <div className="text-xs text-green-400/60 mt-1">Streams online</div>
+                  </div>
+
+                  <div className="p-5 rounded-xl bg-red-500/10 border border-red-500/30">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="text-3xl">❌</div>
+                      <div className="text-sm font-semibold text-red-300">Failed</div>
+                    </div>
+                    <div className="text-3xl font-bold text-red-300">
+                      {Object.values(streamHealthStatus).filter(s => s.status === 'failed').length}
+                    </div>
+                    <div className="text-xs text-red-400/60 mt-1">Streams offline</div>
+                  </div>
+
+                  <div className="p-5 rounded-xl bg-slate-500/10 border border-slate-500/30">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="text-3xl">📊</div>
+                      <div className="text-sm font-semibold text-slate-300">Last Check</div>
+                    </div>
+                    <div className="text-sm font-bold text-slate-300">
+                      {(() => {
+                        const lastCheck = Math.max(...Object.values(streamHealthStatus).map(s => s.checkedAt || 0));
+                        if (!lastCheck) return "Never";
+                        const mins = Math.floor((Date.now() - lastCheck) / 60000);
+                        if (mins < 1) return "Just now";
+                        if (mins < 60) return `${mins}m ago`;
+                        return `${Math.floor(mins / 60)}h ago`;
+                      })()}
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1">Time since check</div>
+                  </div>
+                </div>
+              </Card>
+            )}
 
             {/* Recent Activity */}
             {channelImports.length > 0 && (
@@ -2205,6 +2393,7 @@ export default function App() {
                         <th className="px-4 py-3 text-left font-semibold">Channel</th>
                         <th className="px-4 py-3 text-left font-semibold">Stream URL</th>
                         <th className="px-4 py-3 text-left font-semibold">Group</th>
+                        <th className="px-4 py-3 text-center font-semibold">Health</th>
                         <th className="px-4 py-3 text-right font-semibold">Actions</th>
                       </tr>
                     </thead>
@@ -2218,6 +2407,8 @@ export default function App() {
                           (c.group || "Uncategorized") === channelGroupFilter;
                         
                         if (!matchesSearch || !matchesGroup) return null;
+                        
+                        const health = getStreamHealth(c.id);
                         
                         return (
                           <tr key={`${c.id}-row`} className="hover:bg-slate-900/60 transition-colors">
@@ -2272,6 +2463,20 @@ export default function App() {
                               <span className="px-2 py-1 rounded-md text-xs font-medium bg-slate-800/60 text-slate-300">
                                 {c.group || "Uncategorized"}
                               </span>
+                            </td>
+                            <td className="px-4 py-3 align-middle text-center">
+                              {health ? (
+                                <div className="inline-flex items-center gap-2">
+                                  <span className={`text-lg ${health.status === 'working' ? 'text-green-400' : 'text-red-400'}`}>
+                                    {health.status === 'working' ? '✅' : '❌'}
+                                  </span>
+                                  <span className={`text-xs ${health.status === 'working' ? 'text-green-300' : 'text-red-300'}`}>
+                                    {health.status === 'working' ? 'Online' : 'Offline'}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-slate-500">Not checked</span>
+                              )}
                             </td>
                             <td className="px-4 py-3 align-middle text-right">
                               <button
