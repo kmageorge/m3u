@@ -1185,6 +1185,7 @@ export default function App() {
     
     try {
       const files = await crawlDirectory(url, {
+         maxDepth: 0, // Only scan the provided URL, not subdirectories
         throttleMs: 800,
         onDiscover: (info) => {
           if (info.type === "file" && info.entry) {
@@ -2239,7 +2240,7 @@ export default function App() {
                       onChange={(e)=>setLibraryUrl(e.target.value)}
                     />
                     <p className="mt-3 text-xs text-slate-500">
-                      Subfolders are scanned automatically. Deep libraries may take a little longer.
+                       Only files in the provided directory URL will be scanned (subdirectories are not crawled).
                     </p>
                   </div>
                   <button className={primaryButton} onClick={fetchLibraryCatalog} disabled={libraryLoading}>
