@@ -1170,13 +1170,19 @@ export default function App() {
       return;
     }
     
+    if (!apiKey) {
+      showToast("Add your TMDB API key first for auto-import with metadata.", "error");
+      return;
+    }
+    
     setLibraryLoading(true);
     setLibraryError("");
     setLibraryMovies([]);
     setLibraryShows([]);
     setLibraryDuplicates([]);
     setLibraryFileEntries([]);
-    setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling" });
+    setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling", imported: 0, skipped: 0 });
+    
     try {
       const files = await crawlDirectory(url, {
         throttleMs: 800,
@@ -1206,16 +1212,135 @@ export default function App() {
           }
         }
       });
+      
       if (!files.length) {
         setLibraryError("No playable media files detected at that URL.");
         setLibraryProgress(prev => ({ ...prev, active: false, stage: "empty" }));
         return;
       }
+      
       const candidates = buildLibraryCandidates(files);
-      setLibraryMovies(candidates.movies.map(m => ({ ...m, suggestions: [], loading: false, error: "" })));
-      setLibraryShows(candidates.shows.map(s => ({ ...s, suggestions: [], loading: false, error: "" })));
+      setLibraryProgress(prev => ({ ...prev, stage: "importing", logs: ["Starting auto-import with metadata..."] }));
+      
+      // Auto-import movies
+      let importedCount = 0;
+      let skippedCount = 0;
+      
+      for (const movie of candidates.movies) {
+        // Check for duplicate by URL
+        const isDuplicate = movies.some(m => m.url === movie.entries[0]?.url);
+        if (isDuplicate) {
+          skippedCount++;
+          setLibraryProgress(prev => ({
+            ...prev,
+            skipped: skippedCount,
+            logs: [`Skipped duplicate: ${movie.title}`, ...prev.logs].slice(0, 6)
+          }));
+          continue;
+        }
+        
+        try {
+          // Search TMDB
+          const results = await searchTMDBMovies(apiKey, movie.title);
+          if (results.length > 0) {
+            // Use best match (first result)
+            const match = results[0];
+            await importMovie(String(match.id), { 
+              url: movie.entries[0]?.url || "", 
+              group: "Movies" 
+            });
+            importedCount++;
+            setLibraryProgress(prev => ({
+              ...prev,
+              imported: importedCount,
+              logs: [`✓ Imported: ${match.title}`, ...prev.logs].slice(0, 6)
+            }));
+          } else {
+            skippedCount++;
+            setLibraryProgress(prev => ({
+              ...prev,
+              skipped: skippedCount,
+              logs: [`No metadata found: ${movie.title}`, ...prev.logs].slice(0, 6)
+            }));
+          }
+        } catch (err) {
+          console.warn(`Failed to import movie: ${movie.title}`, err);
+          skippedCount++;
+        }
+        
+        // Throttle to avoid rate limiting
+        await pause(300);
+      }
+      
+      // Auto-import TV shows
+      for (const show of candidates.shows) {
+        // Check for duplicate by episode URLs
+        const showUrls = show.episodes.map(ep => ep.url);
+        const isDuplicate = shows.some(s => 
+          s.seasons.some(sea => 
+            sea.episodes.some(ep => showUrls.includes(ep.url))
+          )
+        );
+        
+        if (isDuplicate) {
+          skippedCount++;
+          setLibraryProgress(prev => ({
+            ...prev,
+            skipped: skippedCount,
+            logs: [`Skipped duplicate show: ${show.title}`, ...prev.logs].slice(0, 6)
+          }));
+          continue;
+        }
+        
+        try {
+          // Search TMDB
+          const results = await searchTMDBShows(apiKey, show.title);
+          if (results.length > 0) {
+            // Use best match (first result)
+            const match = results[0];
+            const episodeMap = {};
+            show.episodes.forEach(ep => {
+              const key = `${ep.season}-${ep.episode}`;
+              if (!episodeMap[key]) episodeMap[key] = ep.url;
+            });
+            
+            await importShow(String(match.id), { 
+              episodeMap, 
+              group: "TV Shows" 
+            });
+            importedCount++;
+            setLibraryProgress(prev => ({
+              ...prev,
+              imported: importedCount,
+              logs: [`✓ Imported: ${match.title} (${Object.keys(episodeMap).length} episodes)`, ...prev.logs].slice(0, 6)
+            }));
+          } else {
+            skippedCount++;
+            setLibraryProgress(prev => ({
+              ...prev,
+              skipped: skippedCount,
+              logs: [`No metadata found: ${show.title}`, ...prev.logs].slice(0, 6)
+            }));
+          }
+        } catch (err) {
+          console.warn(`Failed to import show: ${show.title}`, err);
+          skippedCount++;
+        }
+        
+        // Throttle to avoid rate limiting
+        await pause(300);
+      }
+      
       setLibraryDuplicates(candidates.duplicates);
-      setLibraryProgress(prev => ({ ...prev, active: false, stage: "completed" }));
+      setLibraryProgress(prev => ({ 
+        ...prev, 
+        active: false, 
+        stage: "completed",
+        logs: [`✅ Complete: ${importedCount} imported, ${skippedCount} skipped`, ...prev.logs].slice(0, 6)
+      }));
+      
+      showToast(`Auto-import complete! ${importedCount} added, ${skippedCount} skipped (duplicates/no metadata)`, "success");
+      
     } catch (err) {
       console.warn(err);
       const msg = err?.message || String(err);
@@ -2118,7 +2243,7 @@ export default function App() {
                     </p>
                   </div>
                   <button className={primaryButton} onClick={fetchLibraryCatalog} disabled={libraryLoading}>
-                    {libraryLoading ? "Scanning…" : "Scan Library"}
+                    {libraryLoading ? "Scanning & Importing…" : "Scan & Auto-Import"}
                   </button>
                 </div>
                 {libraryError && <div className="text-xs text-red-300">{libraryError}</div>}
@@ -2140,13 +2265,21 @@ export default function App() {
                   <div className="flex items-center justify-between">
                     <SectionTitle>
                       {libraryProgress.stage === "completed"
-                        ? "Scan completed"
+                        ? "Auto-import completed"
+                        : libraryProgress.stage === "importing"
+                        ? "Auto-importing with metadata…"
                         : libraryProgress.stage === "error"
                         ? "Scan incomplete"
                         : "Scanning…"}
                     </SectionTitle>
-                    <div className="text-xs text-slate-400">
-                      Found {libraryProgress.found} file{libraryProgress.found === 1 ? "" : "s"}
+                    <div className="text-xs text-slate-400 flex gap-4">
+                      <span>Found: {libraryProgress.found}</span>
+                      {(libraryProgress.imported > 0 || libraryProgress.skipped > 0) && (
+                        <>
+                          <span className="text-green-400">Imported: {libraryProgress.imported}</span>
+                          <span className="text-yellow-400">Skipped: {libraryProgress.skipped}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="h-2 rounded-full bg-slate-900/60 overflow-hidden">

@@ -22510,13 +22510,17 @@
         showToast("Invalid URL format. Please enter a valid HTTP/HTTPS URL.", "error");
         return;
       }
+      if (!apiKey) {
+        showToast("Add your TMDB API key first for auto-import with metadata.", "error");
+        return;
+      }
       setLibraryLoading(true);
       setLibraryError("");
       setLibraryMovies([]);
       setLibraryShows([]);
       setLibraryDuplicates([]);
       setLibraryFileEntries([]);
-      setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling" });
+      setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling", imported: 0, skipped: 0 });
       try {
         const files = await crawlDirectory(url, {
           throttleMs: 800,
@@ -22552,10 +22556,105 @@
           return;
         }
         const candidates = buildLibraryCandidates(files);
-        setLibraryMovies(candidates.movies.map((m) => ({ ...m, suggestions: [], loading: false, error: "" })));
-        setLibraryShows(candidates.shows.map((s) => ({ ...s, suggestions: [], loading: false, error: "" })));
+        setLibraryProgress((prev) => ({ ...prev, stage: "importing", logs: ["Starting auto-import with metadata..."] }));
+        let importedCount = 0;
+        let skippedCount = 0;
+        for (const movie of candidates.movies) {
+          const isDuplicate = movies.some((m) => m.url === movie.entries[0]?.url);
+          if (isDuplicate) {
+            skippedCount++;
+            setLibraryProgress((prev) => ({
+              ...prev,
+              skipped: skippedCount,
+              logs: [`Skipped duplicate: ${movie.title}`, ...prev.logs].slice(0, 6)
+            }));
+            continue;
+          }
+          try {
+            const results = await searchTMDBMovies(apiKey, movie.title);
+            if (results.length > 0) {
+              const match = results[0];
+              await importMovie(String(match.id), {
+                url: movie.entries[0]?.url || "",
+                group: "Movies"
+              });
+              importedCount++;
+              setLibraryProgress((prev) => ({
+                ...prev,
+                imported: importedCount,
+                logs: [`\u2713 Imported: ${match.title}`, ...prev.logs].slice(0, 6)
+              }));
+            } else {
+              skippedCount++;
+              setLibraryProgress((prev) => ({
+                ...prev,
+                skipped: skippedCount,
+                logs: [`No metadata found: ${movie.title}`, ...prev.logs].slice(0, 6)
+              }));
+            }
+          } catch (err) {
+            console.warn(`Failed to import movie: ${movie.title}`, err);
+            skippedCount++;
+          }
+          await pause(300);
+        }
+        for (const show of candidates.shows) {
+          const showUrls = show.episodes.map((ep) => ep.url);
+          const isDuplicate = shows.some(
+            (s) => s.seasons.some(
+              (sea) => sea.episodes.some((ep) => showUrls.includes(ep.url))
+            )
+          );
+          if (isDuplicate) {
+            skippedCount++;
+            setLibraryProgress((prev) => ({
+              ...prev,
+              skipped: skippedCount,
+              logs: [`Skipped duplicate show: ${show.title}`, ...prev.logs].slice(0, 6)
+            }));
+            continue;
+          }
+          try {
+            const results = await searchTMDBShows(apiKey, show.title);
+            if (results.length > 0) {
+              const match = results[0];
+              const episodeMap = {};
+              show.episodes.forEach((ep) => {
+                const key = `${ep.season}-${ep.episode}`;
+                if (!episodeMap[key]) episodeMap[key] = ep.url;
+              });
+              await importShow(String(match.id), {
+                episodeMap,
+                group: "TV Shows"
+              });
+              importedCount++;
+              setLibraryProgress((prev) => ({
+                ...prev,
+                imported: importedCount,
+                logs: [`\u2713 Imported: ${match.title} (${Object.keys(episodeMap).length} episodes)`, ...prev.logs].slice(0, 6)
+              }));
+            } else {
+              skippedCount++;
+              setLibraryProgress((prev) => ({
+                ...prev,
+                skipped: skippedCount,
+                logs: [`No metadata found: ${show.title}`, ...prev.logs].slice(0, 6)
+              }));
+            }
+          } catch (err) {
+            console.warn(`Failed to import show: ${show.title}`, err);
+            skippedCount++;
+          }
+          await pause(300);
+        }
         setLibraryDuplicates(candidates.duplicates);
-        setLibraryProgress((prev) => ({ ...prev, active: false, stage: "completed" }));
+        setLibraryProgress((prev) => ({
+          ...prev,
+          active: false,
+          stage: "completed",
+          logs: [`\u2705 Complete: ${importedCount} imported, ${skippedCount} skipped`, ...prev.logs].slice(0, 6)
+        }));
+        showToast(`Auto-import complete! ${importedCount} added, ${skippedCount} skipped (duplicates/no metadata)`, "success");
       } catch (err) {
         console.warn(err);
         const msg = err?.message || String(err);
@@ -23097,7 +23196,7 @@
         value: libraryUrl,
         onChange: (e) => setLibraryUrl(e.target.value)
       }
-    ), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-3 text-xs text-slate-500" }, "Subfolders are scanned automatically. Deep libraries may take a little longer.")), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: fetchLibraryCatalog, disabled: libraryLoading }, libraryLoading ? "Scanning\u2026" : "Scan Library")), libraryError && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-red-300" }, libraryError), !libraryError && !libraryLoading && (libraryMovies.length || libraryShows.length) === 0 && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500" }, "No media detected yet. Try scanning to begin."))), libraryLoading && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-aurora/80" }, "Crawling directories and analysing filenames\u2026")), (libraryProgress.active || libraryProgress.processed > 0 || libraryProgress.stage === "error") && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, libraryProgress.stage === "completed" ? "Scan completed" : libraryProgress.stage === "error" ? "Scan incomplete" : "Scanning\u2026"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400" }, "Found ", libraryProgress.found, " file", libraryProgress.found === 1 ? "" : "s")), /* @__PURE__ */ import_react.default.createElement("div", { className: "h-2 rounded-full bg-slate-900/60 overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement(
+    ), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-3 text-xs text-slate-500" }, "Subfolders are scanned automatically. Deep libraries may take a little longer.")), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: fetchLibraryCatalog, disabled: libraryLoading }, libraryLoading ? "Scanning & Importing\u2026" : "Scan & Auto-Import")), libraryError && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-red-300" }, libraryError), !libraryError && !libraryLoading && (libraryMovies.length || libraryShows.length) === 0 && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500" }, "No media detected yet. Try scanning to begin."))), libraryLoading && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-aurora/80" }, "Crawling directories and analysing filenames\u2026")), (libraryProgress.active || libraryProgress.processed > 0 || libraryProgress.stage === "error") && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, libraryProgress.stage === "completed" ? "Auto-import completed" : libraryProgress.stage === "importing" ? "Auto-importing with metadata\u2026" : libraryProgress.stage === "error" ? "Scan incomplete" : "Scanning\u2026"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 flex gap-4" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Found: ", libraryProgress.found), (libraryProgress.imported > 0 || libraryProgress.skipped > 0) && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("span", { className: "text-green-400" }, "Imported: ", libraryProgress.imported), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-yellow-400" }, "Skipped: ", libraryProgress.skipped)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "h-2 rounded-full bg-slate-900/60 overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement(
       "div",
       {
         className: `h-full ${libraryProgress.active ? "bg-gradient-to-r from-aurora via-sky-500 to-aurora animate-pulse" : "bg-aurora/60"}`,
