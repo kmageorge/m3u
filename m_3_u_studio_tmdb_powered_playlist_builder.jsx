@@ -196,6 +196,13 @@ async function fetchTMDBShow(apiKey, tmdbId) {
     title: show.name,
     overview: show.overview || "",
     poster: show.poster_path ? `https://image.tmdb.org/t/p/w342${show.poster_path}` : "",
+    firstAirDate: show.first_air_date || "",
+    year: show.first_air_date ? new Date(show.first_air_date).getFullYear() : null,
+    rating: show.vote_average || 0,
+    genres: (show.genres || []).map(g => g.name).join(", "),
+    status: show.status || "",
+    numberOfSeasons: show.number_of_seasons || 0,
+    numberOfEpisodes: show.number_of_episodes || 0,
     seasons
   };
 }
@@ -436,10 +443,17 @@ function parseMediaName(filename) {
   const episodeRegex = /(?:^|\b)[Ss](\d{1,2})[^\d]{0,2}[Ee](\d{1,2})(?:\b|[^0-9])/;
   const seasonEpisodeAlt = /Season\s*(\d{1,2}).*Episode\s*(\d{1,2})/i;
   const xNotation = /(\d{1,2})x(\d{1,2})/;
+  const bracketNotation = /\[(\d{1,2})x(\d{1,2})\]/; // [01x05]
+  const dashNotation = /[Ss](\d{1,2})-[Ee](\d{1,2})/; // S01-E05
+  const partNotation = /Part\s*(\d{1,2})/i; // Part 1, Part 01
+  // Date-based episodes (for daily shows): 2024.01.15 or 2024-01-15
+  const dateEpisode = /(\d{4})[\.-](\d{2})[\.-](\d{2})/;
 
   let match = noExt.match(episodeRegex);
   if (!match) match = noExt.match(seasonEpisodeAlt);
   if (!match) match = noExt.match(xNotation);
+  if (!match) match = noExt.match(bracketNotation);
+  if (!match) match = noExt.match(dashNotation);
 
   if (match) {
     const season = parseInt(match[1], 10);
@@ -449,6 +463,27 @@ function parseMediaName(filename) {
     // Clean the title
     const title = normalizeTitle(beforeEpisode);
     return { kind: "episode", title, season, episode };
+  }
+
+  // Check for Part notation (treat as Season 1, Episode = Part number)
+  const partMatch = noExt.match(partNotation);
+  if (partMatch) {
+    const beforePart = noExt.slice(0, partMatch.index);
+    const title = normalizeTitle(beforePart);
+    const partNum = parseInt(partMatch[1], 10);
+    return { kind: "episode", title, season: 1, episode: partNum };
+  }
+
+  // Check for date-based episodes (for daily/talk shows)
+  const dateMatch = noExt.match(dateEpisode);
+  if (dateMatch) {
+    const beforeDate = noExt.slice(0, dateMatch.index);
+    const title = normalizeTitle(beforeDate);
+    const year = parseInt(dateMatch[1], 10);
+    const month = parseInt(dateMatch[2], 10);
+    const day = parseInt(dateMatch[3], 10);
+    // Use month as season, day as episode
+    return { kind: "episode", title, season: month, episode: day };
   }
 
   // Movie parsing
@@ -843,6 +878,7 @@ export default function App() {
   const [showSearchFilter, setShowSearchFilter] = useState("");
   const [movieSearchFilter, setMovieSearchFilter] = useState("");
   const [movieSortBy, setMovieSortBy] = useState(() => readLS("m3u_movie_sort", "added")); // added, title, year, rating
+  const [showSortBy, setShowSortBy] = useState(() => readLS("m3u_show_sort", "added")); // added, title, rating, year
   const [selectedChannels, setSelectedChannels] = useState(new Set());
   const [selectedShows, setSelectedShows] = useState(new Set());
   const [selectedMovies, setSelectedMovies] = useState(new Set());
@@ -1096,6 +1132,7 @@ export default function App() {
   useEffect(() => saveLS("m3u_shows", shows), [shows]);
   useEffect(() => saveLS("m3u_movies", movies), [movies]);
   useEffect(() => saveLS("m3u_movie_sort", movieSortBy), [movieSortBy]);
+  useEffect(() => saveLS("m3u_show_sort", showSortBy), [showSortBy]);
   useEffect(() => saveLS("m3u_library_url", libraryUrl), [libraryUrl]);
   useEffect(() => saveLS("m3u_scan_subfolders", scanSubfolders), [scanSubfolders]);
   useEffect(() => saveLS("m3u_epg_sources", epgSources), [epgSources]);
@@ -3274,10 +3311,20 @@ export default function App() {
                     <SectionTitle>📺 Your TV Shows</SectionTitle>
                     <p className="text-sm text-slate-400 mt-1">{shows.length} series in your library</p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 items-center">
+                    <select
+                      className={`${inputClass} w-40 py-2`}
+                      value={showSortBy}
+                      onChange={(e) => setShowSortBy(e.target.value)}
+                    >
+                      <option value="added">Recently Added</option>
+                      <option value="title">Title A-Z</option>
+                      <option value="year">Year (Newest)</option>
+                      <option value="rating">Rating (Highest)</option>
+                    </select>
                     <input
                       type="text"
-                      className={`${inputClass} w-64`}
+                      className={`${inputClass} w-64 py-2`}
                       placeholder="Search shows..."
                       value={showSearchFilter}
                       onChange={(e) => setShowSearchFilter(e.target.value)}
@@ -3302,8 +3349,26 @@ export default function App() {
                   {shows.filter(s => {
                     if (!showSearchFilter.trim()) return true;
                     const search = showSearchFilter.toLowerCase();
-                    return s.title?.toLowerCase().includes(search);
-                  }).map(show => {
+                    return s.title?.toLowerCase().includes(search) || 
+                           s.genres?.toLowerCase().includes(search) ||
+                           s.year?.toString().includes(search);
+                  })
+                  .sort((a, b) => {
+                    switch(showSortBy) {
+                      case "title":
+                        return (a.title || "").localeCompare(b.title || "");
+                      case "year":
+                        return (b.year || 0) - (a.year || 0);
+                      case "rating":
+                        return (b.rating || 0) - (a.rating || 0);
+                      case "added":
+                      default:
+                        // Most recently added first (reverse ID order)
+                        return b.id.localeCompare(a.id);
+                    }
+                  })
+                  .map((show, idx) => {
+                    const isNew = idx < 5 && showSortBy === "added"; // Mark first 5 as new when sorted by added
                     const totalEpisodes = show.seasons?.reduce((sum, season) => sum + (season.episodes?.length || 0), 0) || 0;
                     const episodesWithUrls = show.seasons?.reduce((sum, season) => 
                       sum + (season.episodes?.filter(ep => ep.url).length || 0), 0) || 0;
@@ -3335,16 +3400,47 @@ export default function App() {
                           <div className="flex-1 space-y-3">
                             <div>
                               <div className="flex items-start justify-between gap-4">
-                                <div>
-                                  <div className="text-lg font-bold text-white">{show.title}</div>
-                                  <div className="text-xs text-slate-400 mt-1 flex gap-3">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <div className="text-lg font-bold text-white">
+                                      {show.title}
+                                      {show.year && <span className="text-slate-400 font-normal ml-1">({show.year})</span>}
+                                    </div>
+                                    {isNew && (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-300 border border-green-500/30">
+                                        NEW
+                                      </span>
+                                    )}
+                                    {show.status && (
+                                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                        show.status === "Returning Series" ? "bg-green-500/20 text-green-300 border border-green-500/30" :
+                                        show.status === "Ended" ? "bg-red-500/20 text-red-300 border border-red-500/30" :
+                                        "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                                      }`}>
+                                        {show.status}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-xs text-slate-400 mt-1 flex gap-3 flex-wrap">
+                                    {show.rating > 0 && (
+                                      <span className="text-yellow-400">⭐ {show.rating.toFixed(1)}</span>
+                                    )}
                                     <span>TMDB #{show.tmdbId}</span>
-                                    <span>📺 {show.seasons?.length || 0} season{show.seasons?.length !== 1 ? 's' : ''}</span>
-                                    <span>🎬 {totalEpisodes} episode{totalEpisodes !== 1 ? 's' : ''}</span>
+                                    <span>📺 {show.numberOfSeasons || show.seasons?.length || 0} season{(show.numberOfSeasons || show.seasons?.length || 0) !== 1 ? 's' : ''}</span>
+                                    <span>🎬 {show.numberOfEpisodes || totalEpisodes} episode{(show.numberOfEpisodes || totalEpisodes) !== 1 ? 's' : ''}</span>
                                     <span className={episodesWithUrls === totalEpisodes ? "text-green-400" : "text-yellow-400"}>
                                       🔗 {episodesWithUrls}/{totalEpisodes} linked
                                     </span>
                                   </div>
+                                  {show.genres && (
+                                    <div className="flex gap-1 mt-1 flex-wrap">
+                                      {show.genres.split(", ").slice(0, 3).map(genre => (
+                                        <span key={genre} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                          {genre}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                                 <button
                                   className="text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0"

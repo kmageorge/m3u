@@ -21614,6 +21614,13 @@
       title: show.name,
       overview: show.overview || "",
       poster: show.poster_path ? `https://image.tmdb.org/t/p/w342${show.poster_path}` : "",
+      firstAirDate: show.first_air_date || "",
+      year: show.first_air_date ? new Date(show.first_air_date).getFullYear() : null,
+      rating: show.vote_average || 0,
+      genres: (show.genres || []).map((g) => g.name).join(", "),
+      status: show.status || "",
+      numberOfSeasons: show.number_of_seasons || 0,
+      numberOfEpisodes: show.number_of_episodes || 0,
       seasons
     };
   }
@@ -21853,15 +21860,37 @@
     const episodeRegex = /(?:^|\b)[Ss](\d{1,2})[^\d]{0,2}[Ee](\d{1,2})(?:\b|[^0-9])/;
     const seasonEpisodeAlt = /Season\s*(\d{1,2}).*Episode\s*(\d{1,2})/i;
     const xNotation = /(\d{1,2})x(\d{1,2})/;
+    const bracketNotation = /\[(\d{1,2})x(\d{1,2})\]/;
+    const dashNotation = /[Ss](\d{1,2})-[Ee](\d{1,2})/;
+    const partNotation = /Part\s*(\d{1,2})/i;
+    const dateEpisode = /(\d{4})[\.-](\d{2})[\.-](\d{2})/;
     let match = noExt.match(episodeRegex);
     if (!match) match = noExt.match(seasonEpisodeAlt);
     if (!match) match = noExt.match(xNotation);
+    if (!match) match = noExt.match(bracketNotation);
+    if (!match) match = noExt.match(dashNotation);
     if (match) {
       const season = parseInt(match[1], 10);
       const episode = parseInt(match[2], 10);
       const beforeEpisode = noExt.slice(0, match.index);
       const title2 = normalizeTitle(beforeEpisode);
       return { kind: "episode", title: title2, season, episode };
+    }
+    const partMatch = noExt.match(partNotation);
+    if (partMatch) {
+      const beforePart = noExt.slice(0, partMatch.index);
+      const title2 = normalizeTitle(beforePart);
+      const partNum = parseInt(partMatch[1], 10);
+      return { kind: "episode", title: title2, season: 1, episode: partNum };
+    }
+    const dateMatch = noExt.match(dateEpisode);
+    if (dateMatch) {
+      const beforeDate = noExt.slice(0, dateMatch.index);
+      const title2 = normalizeTitle(beforeDate);
+      const year = parseInt(dateMatch[1], 10);
+      const month = parseInt(dateMatch[2], 10);
+      const day = parseInt(dateMatch[3], 10);
+      return { kind: "episode", title: title2, season: month, episode: day };
     }
     const normalized = normalizeTitle(noExt);
     const yearMatch = noExt.match(/\b(19|20)\d{2}\b/);
@@ -22178,6 +22207,7 @@
     const [showSearchFilter, setShowSearchFilter] = (0, import_react.useState)("");
     const [movieSearchFilter, setMovieSearchFilter] = (0, import_react.useState)("");
     const [movieSortBy, setMovieSortBy] = (0, import_react.useState)(() => readLS("m3u_movie_sort", "added"));
+    const [showSortBy, setShowSortBy] = (0, import_react.useState)(() => readLS("m3u_show_sort", "added"));
     const [selectedChannels, setSelectedChannels] = (0, import_react.useState)(/* @__PURE__ */ new Set());
     const [selectedShows, setSelectedShows] = (0, import_react.useState)(/* @__PURE__ */ new Set());
     const [selectedMovies, setSelectedMovies] = (0, import_react.useState)(/* @__PURE__ */ new Set());
@@ -22413,6 +22443,7 @@
     (0, import_react.useEffect)(() => saveLS("m3u_shows", shows), [shows]);
     (0, import_react.useEffect)(() => saveLS("m3u_movies", movies), [movies]);
     (0, import_react.useEffect)(() => saveLS("m3u_movie_sort", movieSortBy), [movieSortBy]);
+    (0, import_react.useEffect)(() => saveLS("m3u_show_sort", showSortBy), [showSortBy]);
     (0, import_react.useEffect)(() => saveLS("m3u_library_url", libraryUrl), [libraryUrl]);
     (0, import_react.useEffect)(() => saveLS("m3u_scan_subfolders", scanSubfolders), [scanSubfolders]);
     (0, import_react.useEffect)(() => saveLS("m3u_epg_sources", epgSources), [epgSources]);
@@ -23612,11 +23643,22 @@
         }
       },
       "\u2795 Add Show"
-    ))))))), shows.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F4FA} Your TV Shows"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, shows.length, " series in your library")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ import_react.default.createElement(
+    ))))))), shows.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F4FA} Your TV Shows"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, shows.length, " series in your library")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2 items-center" }, /* @__PURE__ */ import_react.default.createElement(
+      "select",
+      {
+        className: `${inputClass} w-40 py-2`,
+        value: showSortBy,
+        onChange: (e) => setShowSortBy(e.target.value)
+      },
+      /* @__PURE__ */ import_react.default.createElement("option", { value: "added" }, "Recently Added"),
+      /* @__PURE__ */ import_react.default.createElement("option", { value: "title" }, "Title A-Z"),
+      /* @__PURE__ */ import_react.default.createElement("option", { value: "year" }, "Year (Newest)"),
+      /* @__PURE__ */ import_react.default.createElement("option", { value: "rating" }, "Rating (Highest)")
+    ), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         type: "text",
-        className: `${inputClass} w-64`,
+        className: `${inputClass} w-64 py-2`,
         placeholder: "Search shows...",
         value: showSearchFilter,
         onChange: (e) => setShowSearchFilter(e.target.value)
@@ -23638,8 +23680,21 @@
     ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, shows.filter((s) => {
       if (!showSearchFilter.trim()) return true;
       const search = showSearchFilter.toLowerCase();
-      return s.title?.toLowerCase().includes(search);
-    }).map((show) => {
+      return s.title?.toLowerCase().includes(search) || s.genres?.toLowerCase().includes(search) || s.year?.toString().includes(search);
+    }).sort((a, b) => {
+      switch (showSortBy) {
+        case "title":
+          return (a.title || "").localeCompare(b.title || "");
+        case "year":
+          return (b.year || 0) - (a.year || 0);
+        case "rating":
+          return (b.rating || 0) - (a.rating || 0);
+        case "added":
+        default:
+          return b.id.localeCompare(a.id);
+      }
+    }).map((show, idx) => {
+      const isNew = idx < 5 && showSortBy === "added";
       const totalEpisodes = show.seasons?.reduce((sum, season) => sum + (season.episodes?.length || 0), 0) || 0;
       const episodesWithUrls = show.seasons?.reduce((sum, season) => sum + (season.episodes?.filter((ep) => ep.url).length || 0), 0) || 0;
       return /* @__PURE__ */ import_react.default.createElement("div", { key: show.id, className: "rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ import_react.default.createElement(
@@ -23658,7 +23713,7 @@
           },
           className: "mt-1 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
         }
-      ), show.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: show.poster, alt: "", className: "w-16 h-24 rounded-lg object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-16 h-24 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-2xl flex-shrink-0" }, "\u{1F3AC}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-3" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-lg font-bold text-white" }, show.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-1 flex gap-3" }, /* @__PURE__ */ import_react.default.createElement("span", null, "TMDB #", show.tmdbId), /* @__PURE__ */ import_react.default.createElement("span", null, "\u{1F4FA} ", show.seasons?.length || 0, " season", show.seasons?.length !== 1 ? "s" : ""), /* @__PURE__ */ import_react.default.createElement("span", null, "\u{1F3AC} ", totalEpisodes, " episode", totalEpisodes !== 1 ? "s" : ""), /* @__PURE__ */ import_react.default.createElement("span", { className: episodesWithUrls === totalEpisodes ? "text-green-400" : "text-yellow-400" }, "\u{1F517} ", episodesWithUrls, "/", totalEpisodes, " linked"))), /* @__PURE__ */ import_react.default.createElement(
+      ), show.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: show.poster, alt: "", className: "w-16 h-24 rounded-lg object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-16 h-24 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-2xl flex-shrink-0" }, "\u{1F3AC}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-3" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-lg font-bold text-white" }, show.title, show.year && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-400 font-normal ml-1" }, "(", show.year, ")")), isNew && /* @__PURE__ */ import_react.default.createElement("span", { className: "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-300 border border-green-500/30" }, "NEW"), show.status && /* @__PURE__ */ import_react.default.createElement("span", { className: `inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${show.status === "Returning Series" ? "bg-green-500/20 text-green-300 border border-green-500/30" : show.status === "Ended" ? "bg-red-500/20 text-red-300 border border-red-500/30" : "bg-blue-500/20 text-blue-300 border border-blue-500/30"}` }, show.status)), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-1 flex gap-3 flex-wrap" }, show.rating > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-yellow-400" }, "\u2B50 ", show.rating.toFixed(1)), /* @__PURE__ */ import_react.default.createElement("span", null, "TMDB #", show.tmdbId), /* @__PURE__ */ import_react.default.createElement("span", null, "\u{1F4FA} ", show.numberOfSeasons || show.seasons?.length || 0, " season", (show.numberOfSeasons || show.seasons?.length || 0) !== 1 ? "s" : ""), /* @__PURE__ */ import_react.default.createElement("span", null, "\u{1F3AC} ", show.numberOfEpisodes || totalEpisodes, " episode", (show.numberOfEpisodes || totalEpisodes) !== 1 ? "s" : ""), /* @__PURE__ */ import_react.default.createElement("span", { className: episodesWithUrls === totalEpisodes ? "text-green-400" : "text-yellow-400" }, "\u{1F517} ", episodesWithUrls, "/", totalEpisodes, " linked")), show.genres && /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-1 mt-1 flex-wrap" }, show.genres.split(", ").slice(0, 3).map((genre) => /* @__PURE__ */ import_react.default.createElement("span", { key: genre, className: "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30" }, genre)))), /* @__PURE__ */ import_react.default.createElement(
         "button",
         {
           className: "text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0",
