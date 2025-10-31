@@ -21674,6 +21674,43 @@
   var REMOTE_PROXY_PREFIX = "https://r.jina.ai/";
   var buildLocalProxyUrl = (target) => `${LOCAL_PROXY_PREFIX}${encodeURIComponent(target)}`;
   var buildRemoteProxyUrl = (target) => `${REMOTE_PROXY_PREFIX}${target.startsWith("http") ? target : `https://${target}`}`;
+  function parseM3UChannels(text) {
+    const lines = (text || "").split(/\r?\n/);
+    const entries = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]?.trim();
+      if (!line || !line.startsWith("#EXTINF")) continue;
+      const infoLine = line;
+      let url = "";
+      let j = i + 1;
+      while (j < lines.length) {
+        const candidate = lines[j]?.trim();
+        if (candidate && !candidate.startsWith("#")) {
+          url = candidate;
+          break;
+        }
+        j++;
+      }
+      if (!url) continue;
+      i = j;
+      const attrs = {};
+      const attrRegex = /(\w[\w-]*)="([^"]*)"/g;
+      let match;
+      while ((match = attrRegex.exec(infoLine)) !== null) {
+        attrs[match[1]] = match[2];
+      }
+      const namePart = infoLine.includes(",") ? infoLine.split(",").pop()?.trim() : "";
+      entries.push({
+        name: attrs["tvg-name"] || namePart || "",
+        url: url.trim(),
+        logo: attrs["tvg-logo"] || "",
+        group: attrs["group-title"] || "",
+        chno: attrs["tvg-chno"] || attrs["tvg-ch"] || "",
+        id: attrs["tvg-id"] || ""
+      });
+    }
+    return entries.filter((e) => e.url);
+  }
   async function fetchTextWithFallback(url) {
     const clean = url.trim();
     const isLocalProxyRequest = clean.startsWith(LOCAL_PROXY_PREFIX);
@@ -21960,6 +21997,15 @@
     const [channelLogoQuery, setChannelLogoQuery] = (0, import_react.useState)("");
     const [channelLogoLoading, setChannelLogoLoading] = (0, import_react.useState)(false);
     const [channelLogoResults, setChannelLogoResults] = (0, import_react.useState)([]);
+    const [channelLogoTarget, setChannelLogoTarget] = (0, import_react.useState)(null);
+    const [channelImportStatus, setChannelImportStatus] = (0, import_react.useState)({
+      active: false,
+      total: 0,
+      added: 0,
+      skipped: 0,
+      message: ""
+    });
+    const channelImportInputRef = (0, import_react.useRef)(null);
     const [shows, setShows] = (0, import_react.useState)(() => readLS("m3u_shows", []).map((s) => ({ ...s, group: s.group ?? "TV Shows" })));
     const [movies, setMovies] = (0, import_react.useState)(() => readLS("m3u_movies", []).map((m) => ({ ...m, group: m.group ?? "Movies" })));
     const [showSearchQuery, setShowSearchQuery] = (0, import_react.useState)("");
@@ -22131,6 +22177,83 @@
     };
     const updateLibraryShow = (key, updater) => {
       setLibraryShows((ms) => ms.map((m) => m.key === key ? typeof updater === "function" ? updater(m) : { ...m, ...updater } : m));
+    };
+    const requestLogoSuggestions = async (name, limit = 1) => {
+      const query = (name || "").trim();
+      if (!query) return [];
+      try {
+        const res = await fetch(`/api/logos?query=${encodeURIComponent(query)}&top=${limit}`);
+        const data = await res.json();
+        if (!Array.isArray(data?.results)) return [];
+        return data.results.map((item) => item.url).filter(Boolean);
+      } catch {
+        return [];
+      }
+    };
+    const handleChannelFileInput = async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      event.target.value = "";
+      let body = "";
+      try {
+        body = await file.text();
+      } catch {
+        setChannelImportStatus({ active: false, total: 0, added: 0, skipped: 0, message: "Unable to read that file." });
+        return;
+      }
+      const parsed = parseM3UChannels(body);
+      if (!parsed.length) {
+        setChannelImportStatus({ active: false, total: 0, added: 0, skipped: 0, message: "No channels found in that file." });
+        return;
+      }
+      const existing = new Set(channels.map((c) => (c.url || "").trim().toLowerCase()));
+      const additions = [];
+      let added = 0;
+      let skipped = 0;
+      setChannelImportStatus({ active: true, total: parsed.length, added: 0, skipped: 0, message: "Importing channels\u2026" });
+      for (const entry of parsed) {
+        const normalizedUrl = (entry.url || "").trim();
+        if (!normalizedUrl) {
+          skipped++;
+          continue;
+        }
+        const urlKey = normalizedUrl.toLowerCase();
+        if (existing.has(urlKey)) {
+          skipped++;
+          continue;
+        }
+        existing.add(urlKey);
+        let logo = entry.logo;
+        if (!logo && entry.name) {
+          const logos = await requestLogoSuggestions(entry.name, 1);
+          logo = logos[0] || "";
+        }
+        additions.push({
+          id: `ch-${Date.now()}-${added}`,
+          name: entry.name || `Channel ${channels.length + added + 1}`,
+          url: normalizedUrl,
+          logo,
+          group: entry.group || "Live",
+          chno: entry.chno || String(channels.length + added + 1)
+        });
+        added++;
+        setChannelImportStatus((prev) => ({
+          ...prev,
+          added,
+          skipped,
+          message: `Imported ${added} of ${parsed.length}`
+        }));
+      }
+      if (additions.length) {
+        setChannels((prev) => [...prev, ...additions]);
+      }
+      setChannelImportStatus({
+        active: false,
+        total: parsed.length,
+        added,
+        skipped,
+        message: `Import complete. Added ${added}, skipped ${skipped}.`
+      });
     };
     const fetchLibraryCatalog = async () => {
       const url = libraryUrl.trim();
