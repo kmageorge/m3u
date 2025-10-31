@@ -21974,6 +21974,7 @@
     const [libraryShows, setLibraryShows] = (0, import_react.useState)([]);
     const [libraryProgress, setLibraryProgress] = (0, import_react.useState)({ active: false, processed: 0, found: 0, logs: [], stage: "idle" });
     const [libraryDuplicates, setLibraryDuplicates] = (0, import_react.useState)([]);
+    const [libraryFileEntries, setLibraryFileEntries] = (0, import_react.useState)([]);
     const [playlistSyncStatus, setPlaylistSyncStatus] = (0, import_react.useState)("idle");
     const playlistUrl = (0, import_react.useMemo)(() => {
       if (typeof window === "undefined") return "/playlist.m3u";
@@ -21987,6 +21988,41 @@
     const ghostButton = `${baseButton} border border-white/10 text-slate-200 bg-transparent focus:ring-aurora/30 hover:border-aurora/50 hover:text-white`;
     const dangerButton = `${baseButton} border border-red-500/40 text-red-200 bg-red-500/10 focus:ring-red-400/50 hover:bg-red-500/20`;
     const m3u = (0, import_react.useMemo)(() => buildM3U({ channels, shows, movies }), [channels, shows, movies]);
+    const libraryCandidates = (0, import_react.useMemo)(() => buildLibraryCandidates(libraryFileEntries), [libraryFileEntries]);
+    (0, import_react.useEffect)(() => {
+      setLibraryMovies((prev) => {
+        const prevMap = new Map(prev.map((m) => [m.key, m]));
+        return libraryCandidates.movies.map((candidate) => {
+          const existing = prevMap.get(candidate.key);
+          if (existing) {
+            return {
+              ...candidate,
+              suggestions: existing.suggestions || [],
+              loading: existing.loading || false,
+              error: existing.error || ""
+            };
+          }
+          return { ...candidate, suggestions: [], loading: false, error: "" };
+        });
+      });
+      setLibraryShows((prev) => {
+        const prevMap = new Map(prev.map((s) => [s.key, s]));
+        return libraryCandidates.shows.map((candidate) => {
+          const existing = prevMap.get(candidate.key);
+          if (existing) {
+            return {
+              ...candidate,
+              suggestions: existing.suggestions || [],
+              loading: existing.loading || false,
+              error: existing.error || "",
+              pattern: existing.pattern || ""
+            };
+          }
+          return { ...candidate, suggestions: [], loading: false, error: "", pattern: "" };
+        });
+      });
+      setLibraryDuplicates(libraryCandidates.duplicates);
+    }, [libraryCandidates]);
     (0, import_react.useEffect)(() => saveLS("tmdb_api_key", apiKey), [apiKey]);
     (0, import_react.useEffect)(() => saveLS("m3u_channels", channels), [channels]);
     (0, import_react.useEffect)(() => saveLS("m3u_shows", shows), [shows]);
@@ -22101,11 +22137,20 @@
       setLibraryMovies([]);
       setLibraryShows([]);
       setLibraryDuplicates([]);
+      setLibraryFileEntries([]);
       setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling" });
       try {
         const files = await crawlDirectory(url, {
           throttleMs: 800,
           onDiscover: (info) => {
+            if (info.type === "file" && info.entry) {
+              const entry = info.entry;
+              setLibraryFileEntries((prev) => {
+                const exists = prev.some((p) => (p.url || p.path) === (entry.url || entry.path));
+                if (exists) return prev;
+                return [...prev, entry];
+              });
+            }
             setLibraryProgress((prev) => {
               if (!prev.active) return prev;
               if (info.type === "dir") {
