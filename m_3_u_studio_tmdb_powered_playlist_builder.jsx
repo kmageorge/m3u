@@ -155,10 +155,37 @@ async function searchTMDBMovies(apiKey, query) {
 }
 
 const VIDEO_EXTS = [".mp4", ".mkv", ".m3u8", ".avi", ".mov", ".ts", ".flv", ".wmv"];
+const LOCAL_PROXY_PREFIX = "/proxy?url=";
+const REMOTE_PROXY_PREFIX = "https://r.jina.ai/";
+
+const buildLocalProxyUrl = (target) => `${LOCAL_PROXY_PREFIX}${encodeURIComponent(target)}`;
+const buildRemoteProxyUrl = (target) => `${REMOTE_PROXY_PREFIX}${target.startsWith("http") ? target : `https://${target}`}`;
 
 async function fetchTextWithFallback(url) {
   const clean = url.trim();
+  const isLocalProxyRequest = clean.startsWith(LOCAL_PROXY_PREFIX);
+  const isRemoteProxyRequest = clean.startsWith(REMOTE_PROXY_PREFIX);
+
+  const extractOriginalUrl = () => {
+    if (isLocalProxyRequest) {
+      try {
+        const params = new URL(clean, window.location.origin).searchParams;
+        const original = params.get("url") || "";
+        return original || clean;
+      } catch {
+        return clean;
+      }
+    }
+    if (isRemoteProxyRequest) {
+      return clean.slice(REMOTE_PROXY_PREFIX.length);
+    }
+    return clean;
+  };
+
   const normalized = clean.endsWith("/") ? clean : `${clean}/`;
+  const originalUrl = extractOriginalUrl();
+  const originalNormalized = originalUrl.endsWith("/") ? originalUrl : `${originalUrl}/`;
+
   const tryFetch = async (target) => {
     const res = await fetch(target);
     if (!res.ok) {
@@ -169,19 +196,34 @@ async function fetchTextWithFallback(url) {
     }
     return { text: await res.text(), status: res.status };
   };
+  const fetchVia = async (target, mode) => {
+    const { text } = await tryFetch(target);
+    return { text, linkBase: originalNormalized, proxyMode: mode };
+  };
+
+  if (isLocalProxyRequest) {
+    return fetchVia(clean, "local");
+  }
+  if (isRemoteProxyRequest) {
+    return fetchVia(clean, "remote");
+  }
+
   try {
-    const { text } = await tryFetch(normalized);
-    return { text, fetchBase: normalized, linkBase: normalized, proxied: false };
-  } catch (err) {
-    const normalizedForProxy = normalized.startsWith("http") ? normalized : `https://${normalized}`;
-    const proxiedUrl = `https://r.jina.ai/${normalizedForProxy}`;
+    const proxyUrl = buildLocalProxyUrl(originalNormalized);
+    return await fetchVia(proxyUrl, "local");
+  } catch (localErr) {
     try {
-      const { text } = await tryFetch(proxiedUrl);
-      return { text, fetchBase: proxiedUrl, linkBase: normalized, proxied: true };
-    } catch (proxyErr) {
-      if (!proxyErr.status && err?.status) proxyErr.status = err.status;
-      proxyErr.target = proxyErr.target || proxiedUrl;
-      throw proxyErr;
+      return await fetchVia(originalNormalized, "none");
+    } catch (directErr) {
+      const remoteUrl = buildRemoteProxyUrl(originalNormalized);
+      try {
+        return await fetchVia(remoteUrl, "remote");
+      } catch (remoteErr) {
+        if (!remoteErr.status && (localErr?.status || directErr?.status)) {
+          remoteErr.status = localErr?.status || directErr?.status;
+        }
+        throw remoteErr;
+      }
     }
   }
 }
@@ -275,11 +317,16 @@ async function crawlDirectory(baseUrl, options = {}) {
     if (seen.has(fetchUrl)) continue;
     seen.add(fetchUrl);
     try {
-      const { text, fetchBase, linkBase } = await fetchTextWithFallback(fetchUrl);
+      const { text, linkBase, proxyMode } = await fetchTextWithFallback(fetchUrl);
       const entries = parseDirectoryListing(text, linkBase);
       for (const entry of entries) {
-        const resolvedFetch = new URL(entry.href, fetchBase).href;
         const resolvedLink = new URL(entry.href, linkBase).href;
+        let resolvedFetch = resolvedLink;
+        if (proxyMode === "local") {
+          resolvedFetch = buildLocalProxyUrl(resolvedLink);
+        } else if (proxyMode === "remote") {
+          resolvedFetch = buildRemoteProxyUrl(resolvedLink);
+        }
         if (entry.type === "dir") {
           if (depth < maxDepth) queue.push({ fetchUrl: resolvedFetch, linkUrl: resolvedLink, depth: depth + 1 });
         } else {
