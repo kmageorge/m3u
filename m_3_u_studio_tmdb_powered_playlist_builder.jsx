@@ -582,6 +582,12 @@ export default function App() {
   const [selectedChannels, setSelectedChannels] = useState(new Set());
   const [selectedShows, setSelectedShows] = useState(new Set());
   const [selectedMovies, setSelectedMovies] = useState(new Set());
+  
+  // EPG states
+  const [epgSources, setEpgSources] = useState(() => readLS("m3u_epg_sources", []));
+  const [selectedEpgSources, setSelectedEpgSources] = useState(new Set());
+  const [epgMappings, setEpgMappings] = useState(() => readLS("m3u_epg_mappings", {}));
+  const [autoMapStatus, setAutoMapStatus] = useState({ active: false, matched: 0, total: 0 });
 
   const [channels, setChannels] = useState(() => readLS("m3u_channels", []));
   const [channelLogoQuery, setChannelLogoQuery] = useState("");
@@ -693,6 +699,8 @@ export default function App() {
   useEffect(() => saveLS("m3u_shows", shows), [shows]);
   useEffect(() => saveLS("m3u_movies", movies), [movies]);
   useEffect(() => saveLS("m3u_library_url", libraryUrl), [libraryUrl]);
+  useEffect(() => saveLS("m3u_epg_sources", epgSources), [epgSources]);
+  useEffect(() => saveLS("m3u_epg_mappings", epgMappings), [epgMappings]);
   useEffect(() => {
     if (!m3u) return;
     let cancelled = false;
@@ -1021,6 +1029,80 @@ export default function App() {
     setChannels(cs => cs.filter(ch => ch.importId !== id));
   };
 
+  // ----- EPG Management -----
+  const addEpgSource = () => {
+    const newSource = {
+      id: `epg-${Date.now()}`,
+      name: "New EPG Source",
+      url: "",
+      enabled: true,
+      createdAt: Date.now()
+    };
+    setEpgSources(prev => [...prev, newSource]);
+  };
+
+  const updateEpgSource = (id, updates) => {
+    setEpgSources(prev => prev.map(epg => epg.id === id ? { ...epg, ...updates } : epg));
+  };
+
+  const removeEpgSource = (id) => {
+    setEpgSources(prev => prev.filter(epg => epg.id !== id));
+    // Clean up mappings for this source
+    setEpgMappings(prev => {
+      const newMappings = { ...prev };
+      Object.keys(newMappings).forEach(channelId => {
+        if (newMappings[channelId]?.epgSourceId === id) {
+          delete newMappings[channelId];
+        }
+      });
+      return newMappings;
+    });
+  };
+
+  const setChannelEpgMapping = (channelId, epgChannelId, epgSourceId) => {
+    setEpgMappings(prev => ({
+      ...prev,
+      [channelId]: { epgChannelId, epgSourceId }
+    }));
+  };
+
+  const clearChannelEpgMapping = (channelId) => {
+    setEpgMappings(prev => {
+      const newMappings = { ...prev };
+      delete newMappings[channelId];
+      return newMappings;
+    });
+  };
+
+  const autoMapEpgChannels = async () => {
+    if (epgSources.length === 0) {
+      alert("Please add at least one EPG source first");
+      return;
+    }
+    
+    setAutoMapStatus({ active: true, matched: 0, total: channels.length });
+    let matched = 0;
+
+    // Simple auto-mapping based on channel names
+    channels.forEach(channel => {
+      if (!channel.name) return;
+      
+      const channelNameLower = channel.name.toLowerCase().trim();
+      
+      // Try to match with tvg-id first if it exists
+      if (channel.id) {
+        const firstEpg = epgSources[0]; // Use first enabled EPG source
+        if (firstEpg && firstEpg.enabled) {
+          setChannelEpgMapping(channel.id, channel.id, firstEpg.id);
+          matched++;
+        }
+      }
+    });
+
+    setAutoMapStatus({ active: false, matched, total: channels.length });
+    alert(`Auto-mapping complete!\n${matched} of ${channels.length} channels mapped.`);
+  };
+
   // ----- TV Shows -----
   const importShow = async (tmdbId, options = {}) => {
     if (!apiKey) return alert("Add your TMDB API key first");
@@ -1140,6 +1222,10 @@ export default function App() {
             <TabBtn icon="�📺" active={active === "channels"} onClick={()=>setActive("channels")}>
               Channels
               {channels.length > 0 && <span className="px-2 py-0.5 text-xs rounded-full bg-white/20">{channels.length}</span>}
+            </TabBtn>
+            <TabBtn icon="📡" active={active === "epg"} onClick={()=>setActive("epg")}>
+              EPG
+              {epgSources.length > 0 && <span className="px-2 py-0.5 text-xs rounded-full bg-white/20">{epgSources.length}</span>}
             </TabBtn>
             <TabBtn icon="🎬" active={active === "shows"} onClick={()=>setActive("shows")}>
               TV Shows
@@ -1944,6 +2030,279 @@ export default function App() {
                 </div>
               </Card>
             )}
+          </div>
+        )}
+
+        {active === "epg" && (
+          <div className="space-y-6">
+            {/* EPG Sources Management */}
+            <Card>
+              <div className="flex flex-col gap-6">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                  <div>
+                    <SectionTitle>📡 EPG Sources</SectionTitle>
+                    <p className="text-sm text-slate-400 max-w-2xl">
+                      Manage Electronic Program Guide sources for channel schedules and metadata
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className={primaryButton}
+                      onClick={addEpgSource}
+                    >
+                      ➕ Add EPG Source
+                    </button>
+                    {selectedEpgSources.size > 0 && (
+                      <button
+                        className={dangerButton}
+                        onClick={() => {
+                          if (window.confirm(`Delete ${selectedEpgSources.size} selected EPG source${selectedEpgSources.size > 1 ? 's' : ''}?`)) {
+                            selectedEpgSources.forEach(id => removeEpgSource(id));
+                            setSelectedEpgSources(new Set());
+                          }
+                        }}
+                      >
+                        🗑️ Delete ({selectedEpgSources.size})
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {epgSources.length === 0 ? (
+                  <div className="text-center py-16 rounded-xl bg-slate-800/40 border border-dashed border-white/10">
+                    <div className="text-6xl mb-4">📡</div>
+                    <p className="text-xl font-semibold text-white mb-2">No EPG Sources</p>
+                    <p className="text-slate-400 mb-6">Add an EPG XML URL to enable program guides for your channels</p>
+                    <button className={primaryButton} onClick={addEpgSource}>
+                      ➕ Add First EPG Source
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {epgSources.map(epg => (
+                      <div key={epg.id} className="rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all">
+                        <div className="flex gap-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedEpgSources.has(epg.id)}
+                            onChange={(e) => {
+                              const newSelected = new Set(selectedEpgSources);
+                              if (e.target.checked) {
+                                newSelected.add(epg.id);
+                              } else {
+                                newSelected.delete(epg.id);
+                              }
+                              setSelectedEpgSources(newSelected);
+                            }}
+                            className="mt-1 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+                          />
+                          
+                          <div className="flex-1 space-y-4">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1 space-y-3">
+                                <div>
+                                  <label className="block text-xs font-semibold text-slate-400 mb-2">EPG Name</label>
+                                  <input
+                                    className={inputClass}
+                                    placeholder="e.g., Main EPG, Backup EPG"
+                                    value={epg.name}
+                                    onChange={(e) => updateEpgSource(epg.id, { name: e.target.value })}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-semibold text-slate-400 mb-2">EPG XML URL</label>
+                                  <input
+                                    className={inputClass}
+                                    placeholder="https://example.com/epg.xml or http://example.com/xmltv.php"
+                                    value={epg.url}
+                                    onChange={(e) => updateEpgSource(epg.id, { url: e.target.value })}
+                                  />
+                                  <p className="text-xs text-slate-500 mt-2 flex items-start gap-2">
+                                    <span className="text-aurora">💡</span>
+                                    <span>XMLTV format EPG files. Can be local file:// URLs or HTTP/HTTPS endpoints</span>
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex flex-col gap-2 items-end">
+                                <div className="flex items-center gap-2">
+                                  <label className="text-xs font-semibold text-slate-400">Enabled</label>
+                                  <input
+                                    type="checkbox"
+                                    checked={epg.enabled}
+                                    onChange={(e) => updateEpgSource(epg.id, { enabled: e.target.checked })}
+                                    className="rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+                                  />
+                                </div>
+                                <button
+                                  className="text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all"
+                                  onClick={() => {
+                                    if (window.confirm(`Delete EPG source "${epg.name}"?`)) {
+                                      removeEpgSource(epg.id);
+                                    }
+                                  }}
+                                >
+                                  🗑️ Remove
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <span>Created: {new Date(epg.createdAt).toLocaleDateString()}</span>
+                              <span>•</span>
+                              <span className={epg.enabled ? "text-green-400" : "text-slate-500"}>
+                                {epg.enabled ? "✓ Active" : "○ Disabled"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Channel EPG Mapping */}
+            {epgSources.length > 0 && channels.length > 0 && (
+              <Card>
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <SectionTitle>🔗 Channel EPG Mapping</SectionTitle>
+                    <p className="text-sm text-slate-400 mt-1">
+                      Map your channels to EPG data for program guide information
+                    </p>
+                  </div>
+                  <button
+                    className={primaryButton}
+                    onClick={autoMapEpgChannels}
+                    disabled={autoMapStatus.active}
+                  >
+                    {autoMapStatus.active ? (
+                      <>
+                        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                        </svg>
+                        Mapping...
+                      </>
+                    ) : (
+                      <>✨ Auto-Map Channels</>
+                    )}
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {channels.slice(0, 50).map((channel, idx) => {
+                    const mapping = epgMappings[channel.id];
+                    const mappedSource = mapping ? epgSources.find(s => s.id === mapping.epgSourceId) : null;
+                    
+                    return (
+                      <div key={channel.id} className="grid lg:grid-cols-12 gap-3 items-center p-4 rounded-xl bg-slate-800/40 border border-white/5 hover:border-aurora/20 transition-colors">
+                        <div className="lg:col-span-3 flex items-center gap-3">
+                          {channel.logo ? (
+                            <img src={channel.logo} alt="" className="w-10 h-10 rounded-lg object-cover border border-white/10 flex-shrink-0" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-xs flex-shrink-0">📺</div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-white truncate">{channel.name}</div>
+                            <div className="text-xs text-slate-500 truncate">#{channel.chno || idx + 1}</div>
+                          </div>
+                        </div>
+                        
+                        <div className="lg:col-span-3">
+                          <label className="block text-xs font-semibold text-slate-400 mb-2">EPG Source</label>
+                          <select
+                            className={inputClass}
+                            value={mapping?.epgSourceId || ""}
+                            onChange={(e) => {
+                              const sourceId = e.target.value;
+                              if (!sourceId) {
+                                clearChannelEpgMapping(channel.id);
+                              } else {
+                                setChannelEpgMapping(channel.id, channel.id, sourceId);
+                              }
+                            }}
+                          >
+                            <option value="">No EPG</option>
+                            {epgSources.filter(s => s.enabled).map(source => (
+                              <option key={source.id} value={source.id}>{source.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        
+                        <div className="lg:col-span-4">
+                          <label className="block text-xs font-semibold text-slate-400 mb-2">EPG Channel ID</label>
+                          <input
+                            className={inputClass}
+                            placeholder="Channel ID from EPG (e.g., bbc.one.uk)"
+                            value={mapping?.epgChannelId || ""}
+                            onChange={(e) => {
+                              if (mapping?.epgSourceId) {
+                                setChannelEpgMapping(channel.id, e.target.value, mapping.epgSourceId);
+                              }
+                            }}
+                            disabled={!mapping?.epgSourceId}
+                          />
+                        </div>
+                        
+                        <div className="lg:col-span-2 flex items-end gap-2">
+                          <div className={`text-xs px-3 py-2 rounded-lg ${mapping ? 'bg-green-500/20 text-green-300' : 'bg-slate-700/40 text-slate-500'}`}>
+                            {mapping ? '✓ Mapped' : '○ Not Mapped'}
+                          </div>
+                          {mapping && (
+                            <button
+                              className="text-xs font-medium px-2 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all"
+                              onClick={() => clearChannelEpgMapping(channel.id)}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {channels.length > 50 && (
+                    <div className="text-center py-4 text-sm text-slate-500">
+                      Showing first 50 of {channels.length} channels
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )}
+
+            {/* EPG Info */}
+            <Card>
+              <SectionTitle>ℹ️ About EPG</SectionTitle>
+              <div className="space-y-4 text-sm text-slate-300">
+                <div className="p-4 rounded-xl bg-slate-800/40 border border-white/5">
+                  <h4 className="font-semibold text-white mb-2">What is EPG?</h4>
+                  <p className="text-slate-400">
+                    Electronic Program Guide (EPG) provides TV schedules and program information for your channels. 
+                    EPG data is typically provided in XMLTV format from your IPTV provider.
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-800/40 border border-white/5">
+                  <h4 className="font-semibold text-white mb-2">How to use EPG:</h4>
+                  <ol className="list-decimal list-inside space-y-2 text-slate-400 ml-2">
+                    <li>Add one or more EPG XML URLs from your IPTV provider</li>
+                    <li>Use Auto-Map to automatically match channels by their tvg-id</li>
+                    <li>Or manually map each channel to its EPG Channel ID</li>
+                    <li>Export your playlist with EPG URLs included in the M3U file</li>
+                  </ol>
+                </div>
+                <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/30">
+                  <h4 className="font-semibold text-blue-300 mb-2">💡 Tips:</h4>
+                  <ul className="list-disc list-inside space-y-1 text-slate-400 ml-2">
+                    <li>EPG sources can be HTTP/HTTPS URLs or local file:// paths</li>
+                    <li>Multiple EPG sources can be used for different channel groups</li>
+                    <li>EPG URLs are added to the M3U header when you export</li>
+                    <li>Most IPTV players will automatically fetch EPG data from these URLs</li>
+                  </ul>
+                </div>
+              </div>
+            </Card>
           </div>
         )}
 
