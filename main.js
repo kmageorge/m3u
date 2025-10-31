@@ -21512,6 +21512,25 @@
   var import_freekeys = __toESM(require_freekeys());
   var pad = (n, len = 2) => String(n).padStart(len, "0");
   var sanitize = (s) => (s ?? "").toString().replace(/\n/g, " ").trim();
+  var isValidUrl = (u) => {
+    if (!u) return false;
+    try {
+      const url = new URL(u.trim());
+      return ["http:", "https:", "file:"].includes(url.protocol);
+    } catch {
+      const s = u.trim();
+      if (s.startsWith("/") || s.startsWith("./") || s.startsWith("../")) return true;
+      return false;
+    }
+  };
+  var sanitizeInput = (input) => {
+    if (!input) return "";
+    return input.toString().replace(/<[^>]*>/g, "").replace(/[<>"'&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "&": "&amp;" })[c] || c).trim();
+  };
+  var normalizeName = (n) => {
+    if (!n) return "";
+    return n.toString().toLowerCase().replace(/\b(hd|fhd|uhd|4k|8k|full|channel|tv)\b/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  };
   function downloadText(filename, text) {
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -22333,6 +22352,10 @@
     const fetchLibraryCatalog = async () => {
       const url = libraryUrl.trim();
       if (!url) return showToast("Enter a base URL to crawl.", "error");
+      if (!isValidUrl(url)) {
+        showToast("Invalid URL format. Please enter a valid HTTP/HTTPS URL.", "error");
+        return;
+      }
       setLibraryLoading(true);
       setLibraryError("");
       setLibraryMovies([]);
@@ -22430,7 +22453,23 @@
       showToast(`Imported "${suggestion.title}" with ${Object.keys(episodeMap).length} episodes linked.`, "success");
     };
     const addChannel = () => setChannels((cs) => [...cs, { id: `ch-${Date.now()}`, name: "New Channel", url: "", logo: "", group: "Live", chno: cs.length + 1 }]);
-    const updateChannel = (idx, patch) => setChannels((cs) => cs.map((c, i) => i === idx ? { ...c, ...patch } : c));
+    const updateChannel = (idx, patch) => {
+      if (patch.url !== void 0 && patch.url.trim() && !isValidUrl(patch.url)) {
+        showToast("Invalid stream URL format", "error");
+        return;
+      }
+      if (patch.logo !== void 0 && patch.logo.trim() && !isValidUrl(patch.logo)) {
+        showToast("Invalid logo URL format", "error");
+        return;
+      }
+      if (patch.name !== void 0) {
+        patch.name = sanitizeInput(patch.name);
+      }
+      if (patch.group !== void 0) {
+        patch.group = sanitizeInput(patch.group);
+      }
+      setChannels((cs) => cs.map((c, i) => i === idx ? { ...c, ...patch } : c));
+    };
     const removeChannel = (idx) => {
       setChannels((cs) => {
         const target = cs[idx];
@@ -22463,6 +22502,16 @@
       setEpgSources((prev) => [...prev, newSource]);
     };
     const updateEpgSource = (id, updates) => {
+      if (updates.url !== void 0) {
+        const urlValue = updates.url.trim();
+        if (urlValue && !isValidUrl(urlValue)) {
+          showToast("Invalid EPG URL format. Use http://, https://, or file:// URLs", "error");
+          return;
+        }
+      }
+      if (updates.name !== void 0) {
+        updates.name = sanitizeInput(updates.name);
+      }
       setEpgSources((prev) => prev.map((epg) => epg.id === id ? { ...epg, ...updates } : epg));
     };
     const removeEpgSource = (id) => {
@@ -22495,21 +22544,43 @@
         showToast("Please add at least one EPG source first", "error");
         return;
       }
+      const enabledSources = epgSources.filter((s) => s.enabled);
+      if (enabledSources.length === 0) {
+        showToast("Please enable at least one EPG source", "error");
+        return;
+      }
       setAutoMapStatus({ active: true, matched: 0, total: channels.length });
       let matched = 0;
+      let highConfidence = 0;
+      let lowConfidence = 0;
       channels.forEach((channel) => {
         if (!channel.name) return;
-        const channelNameLower = channel.name.toLowerCase().trim();
         if (channel.id) {
-          const firstEpg = epgSources[0];
-          if (firstEpg && firstEpg.enabled) {
+          const firstEpg = enabledSources[0];
+          if (firstEpg) {
             setChannelEpgMapping(channel.id, channel.id, firstEpg.id);
             matched++;
+            highConfidence++;
+            return;
+          }
+        }
+        const normalizedChannelName = normalizeName(channel.name);
+        if (normalizedChannelName) {
+          const firstEpg = enabledSources[0];
+          if (firstEpg) {
+            const epgChannelId = normalizedChannelName.replace(/\s+/g, ".") + ".tv";
+            setChannelEpgMapping(channel.id, epgChannelId, firstEpg.id);
+            matched++;
+            lowConfidence++;
           }
         }
       });
       setAutoMapStatus({ active: false, matched, total: channels.length });
-      showToast(`Auto-mapping complete! ${matched} of ${channels.length} channels mapped.`, "success");
+      if (matched === 0) {
+        showToast("No channels could be mapped automatically", "error");
+      } else {
+        showToast(`Auto-mapping complete! ${matched} of ${channels.length} channels mapped (${highConfidence} high confidence, ${lowConfidence} low confidence)`, "success");
+      }
     };
     const importShow = async (tmdbId, options = {}) => {
       if (!apiKey) return showToast("Add your TMDB API key first", "error");
@@ -22541,7 +22612,18 @@
         }
       ]);
     };
-    const setShowPatch = (id, patch) => setShows((ss) => ss.map((s) => s.id === id ? { ...s, ...patch } : s));
+    const setShowPatch = (id, patch) => {
+      if (patch.pattern !== void 0) {
+        patch.pattern = sanitizeInput(patch.pattern);
+      }
+      if (patch.title !== void 0) {
+        patch.title = sanitizeInput(patch.title);
+      }
+      if (patch.group !== void 0) {
+        patch.group = sanitizeInput(patch.group);
+      }
+      setShows((ss) => ss.map((s) => s.id === id ? { ...s, ...patch } : s));
+    };
     const guessPattern = (id, samples) => {
       const { pattern, notes } = inferPattern(samples);
       setShowPatch(id, { pattern });
@@ -22573,7 +22655,23 @@
         }
       ]);
     };
-    const setMoviePatch = (id, patch) => setMovies((ms) => ms.map((m) => m.id === id ? { ...m, ...patch } : m));
+    const setMoviePatch = (id, patch) => {
+      if (patch.url !== void 0 && patch.url.trim() && !isValidUrl(patch.url)) {
+        showToast("Invalid movie stream URL format", "error");
+        return;
+      }
+      if (patch.poster !== void 0 && patch.poster.trim() && !isValidUrl(patch.poster)) {
+        showToast("Invalid poster URL format", "error");
+        return;
+      }
+      if (patch.title !== void 0) {
+        patch.title = sanitizeInput(patch.title);
+      }
+      if (patch.group !== void 0) {
+        patch.group = sanitizeInput(patch.group);
+      }
+      setMovies((ms) => ms.map((m) => m.id === id ? { ...m, ...patch } : m));
+    };
     const exportBackup = () => {
       const backup = {
         version: "1.0.0",

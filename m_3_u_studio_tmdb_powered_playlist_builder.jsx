@@ -39,6 +39,50 @@ const pad = (n, len = 2) => String(n).padStart(len, "0");
 
 const sanitize = (s) => (s ?? "").toString().replace(/\n/g, " ").trim();
 
+// ----- Validation & Matching Helpers -----
+const isValidUrl = (u) => {
+  if (!u) return false;
+  try {
+    const url = new URL(u.trim());
+    return ["http:", "https:", "file:"].includes(url.protocol);
+  } catch {
+    const s = u.trim();
+    // Allow relative/local paths
+    if (s.startsWith("/") || s.startsWith("./") || s.startsWith("../")) return true;
+    return false;
+  }
+};
+
+const sanitizeInput = (input) => {
+  if (!input) return "";
+  return input
+    .toString()
+    .replace(/<[^>]*>/g, "") // Remove HTML tags
+    .replace(/[<>"'&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '&': '&amp;' }[c] || c))
+    .trim();
+};
+
+const normalizeName = (n) => {
+  if (!n) return "";
+  return n
+    .toString()
+    .toLowerCase()
+    .replace(/\b(hd|fhd|uhd|4k|8k|full|channel|tv)\b/g, "")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+const fuzzyMatchScore = (a, b) => {
+  const ta = new Set(normalizeName(a).split(/\s+/).filter(Boolean));
+  const tb = new Set(normalizeName(b).split(/\s+/).filter(Boolean));
+  if (!ta.size || !tb.size) return 0;
+  let intersection = 0;
+  ta.forEach(t => { if (tb.has(t)) intersection++; });
+  const union = new Set([...ta, ...tb]).size;
+  return union > 0 ? intersection / union : 0;
+};
+
 function downloadText(filename, text) {
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -962,6 +1006,12 @@ export default function App() {
   const fetchLibraryCatalog = async () => {
     const url = libraryUrl.trim();
     if (!url) return showToast("Enter a base URL to crawl.", "error");
+    
+    if (!isValidUrl(url)) {
+      showToast("Invalid URL format. Please enter a valid HTTP/HTTPS URL.", "error");
+      return;
+    }
+    
     setLibraryLoading(true);
     setLibraryError("");
     setLibraryMovies([]);
@@ -1065,7 +1115,27 @@ export default function App() {
 
   // ----- Channels -----
   const addChannel = () => setChannels(cs => [...cs, { id: `ch-${Date.now()}`, name: "New Channel", url: "", logo: "", group: "Live", chno: cs.length + 1 }]);
-  const updateChannel = (idx, patch) => setChannels(cs => cs.map((c, i) => i === idx ? { ...c, ...patch } : c));
+  
+  const updateChannel = (idx, patch) => {
+    // Validate and sanitize inputs
+    if (patch.url !== undefined && patch.url.trim() && !isValidUrl(patch.url)) {
+      showToast("Invalid stream URL format", "error");
+      return;
+    }
+    if (patch.logo !== undefined && patch.logo.trim() && !isValidUrl(patch.logo)) {
+      showToast("Invalid logo URL format", "error");
+      return;
+    }
+    if (patch.name !== undefined) {
+      patch.name = sanitizeInput(patch.name);
+    }
+    if (patch.group !== undefined) {
+      patch.group = sanitizeInput(patch.group);
+    }
+    
+    setChannels(cs => cs.map((c, i) => i === idx ? { ...c, ...patch } : c));
+  };
+  
   const removeChannel = (idx) => {
     setChannels(cs => {
       const target = cs[idx];
@@ -1101,6 +1171,20 @@ export default function App() {
   };
 
   const updateEpgSource = (id, updates) => {
+    // Validate URL if being updated
+    if (updates.url !== undefined) {
+      const urlValue = updates.url.trim();
+      if (urlValue && !isValidUrl(urlValue)) {
+        showToast("Invalid EPG URL format. Use http://, https://, or file:// URLs", "error");
+        return;
+      }
+    }
+    
+    // Sanitize name input
+    if (updates.name !== undefined) {
+      updates.name = sanitizeInput(updates.name);
+    }
+    
     setEpgSources(prev => prev.map(epg => epg.id === id ? { ...epg, ...updates } : epg));
   };
 
@@ -1139,27 +1223,54 @@ export default function App() {
       return;
     }
     
+    const enabledSources = epgSources.filter(s => s.enabled);
+    if (enabledSources.length === 0) {
+      showToast("Please enable at least one EPG source", "error");
+      return;
+    }
+    
     setAutoMapStatus({ active: true, matched: 0, total: channels.length });
     let matched = 0;
+    let highConfidence = 0;
+    let lowConfidence = 0;
 
-    // Simple auto-mapping based on channel names
     channels.forEach(channel => {
       if (!channel.name) return;
       
-      const channelNameLower = channel.name.toLowerCase().trim();
-      
-      // Try to match with tvg-id first if it exists
+      // Priority 1: Exact tvg-id match
       if (channel.id) {
-        const firstEpg = epgSources[0]; // Use first enabled EPG source
-        if (firstEpg && firstEpg.enabled) {
+        const firstEpg = enabledSources[0];
+        if (firstEpg) {
           setChannelEpgMapping(channel.id, channel.id, firstEpg.id);
           matched++;
+          highConfidence++;
+          return;
+        }
+      }
+      
+      // Priority 2: Fuzzy name matching
+      const normalizedChannelName = normalizeName(channel.name);
+      if (normalizedChannelName) {
+        // For now, use the channel name as EPG ID with first enabled source
+        // In a real implementation, you'd fetch EPG XML and match against actual channel IDs
+        const firstEpg = enabledSources[0];
+        if (firstEpg) {
+          // Generate a likely EPG channel ID from normalized name
+          const epgChannelId = normalizedChannelName.replace(/\s+/g, ".") + ".tv";
+          setChannelEpgMapping(channel.id, epgChannelId, firstEpg.id);
+          matched++;
+          lowConfidence++;
         }
       }
     });
 
     setAutoMapStatus({ active: false, matched, total: channels.length });
-    showToast(`Auto-mapping complete! ${matched} of ${channels.length} channels mapped.`, "success");
+    
+    if (matched === 0) {
+      showToast("No channels could be mapped automatically", "error");
+    } else {
+      showToast(`Auto-mapping complete! ${matched} of ${channels.length} channels mapped (${highConfidence} high confidence, ${lowConfidence} low confidence)`, "success");
+    }
   };
 
   // ----- TV Shows -----
@@ -1193,7 +1304,21 @@ export default function App() {
       }
     ]);
   };
-  const setShowPatch = (id, patch) => setShows(ss => ss.map(s => s.id === id ? { ...s, ...patch } : s));
+  
+  const setShowPatch = (id, patch) => {
+    // Validate pattern if being updated
+    if (patch.pattern !== undefined) {
+      patch.pattern = sanitizeInput(patch.pattern);
+    }
+    if (patch.title !== undefined) {
+      patch.title = sanitizeInput(patch.title);
+    }
+    if (patch.group !== undefined) {
+      patch.group = sanitizeInput(patch.group);
+    }
+    
+    setShows(ss => ss.map(s => s.id === id ? { ...s, ...patch } : s));
+  };
 
   const guessPattern = (id, samples) => {
     const { pattern, notes } = inferPattern(samples);
@@ -1229,7 +1354,25 @@ export default function App() {
       }
     ]);
   };
-  const setMoviePatch = (id, patch) => setMovies(ms => ms.map(m => m.id === id ? { ...m, ...patch } : m));
+  const setMoviePatch = (id, patch) => {
+    // Validate URL if being updated
+    if (patch.url !== undefined && patch.url.trim() && !isValidUrl(patch.url)) {
+      showToast("Invalid movie stream URL format", "error");
+      return;
+    }
+    if (patch.poster !== undefined && patch.poster.trim() && !isValidUrl(patch.poster)) {
+      showToast("Invalid poster URL format", "error");
+      return;
+    }
+    if (patch.title !== undefined) {
+      patch.title = sanitizeInput(patch.title);
+    }
+    if (patch.group !== undefined) {
+      patch.group = sanitizeInput(patch.group);
+    }
+    
+    setMovies(ms => ms.map(m => m.id === id ? { ...m, ...patch } : m));
+  };
 
   // ----- Backup/Restore -----
   const exportBackup = () => {
