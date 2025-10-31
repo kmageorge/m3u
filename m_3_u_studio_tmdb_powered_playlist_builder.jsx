@@ -502,7 +502,6 @@ export default function App() {
   const [libraryMovies, setLibraryMovies] = useState([]);
   const [libraryShows, setLibraryShows] = useState([]);
   const [libraryProgress, setLibraryProgress] = useState({ active: false, processed: 0, found: 0, logs: [], stage: "idle" });
-  const [libraryDeepScan, setLibraryDeepScan] = useState(false);
   const [playlistSyncStatus, setPlaylistSyncStatus] = useState("idle");
   const playlistUrl = useMemo(() => {
     if (typeof window === "undefined") return "/playlist.m3u";
@@ -646,7 +645,7 @@ export default function App() {
     setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling" });
     try {
       const files = await crawlDirectory(url, {
-        maxDepth: libraryDeepScan ? 3 : 0,
+        maxDepth: 4,
         throttleMs: 800,
         onDiscover: (info) => {
           setLibraryProgress(prev => {
@@ -852,15 +851,9 @@ export default function App() {
                       value={libraryUrl}
                       onChange={(e)=>setLibraryUrl(e.target.value)}
                     />
-                    <label className="mt-3 flex items-center gap-2 text-xs text-slate-400">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-white/20 bg-slate-950 text-aurora focus:ring-aurora/60"
-                        checked={libraryDeepScan}
-                        onChange={(e)=>setLibraryDeepScan(e.target.checked)}
-                      />
-                      Scan subfolders (may take longer and rely on proxy)
-                    </label>
+                    <p className="mt-3 text-xs text-slate-500">
+                      Subfolders are scanned automatically. Deep libraries may take a little longer.
+                    </p>
                   </div>
                   <button className={primaryButton} onClick={fetchLibraryCatalog} disabled={libraryLoading}>
                     {libraryLoading ? "Scanning…" : "Scan Library"}
