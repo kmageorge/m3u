@@ -21755,7 +21755,8 @@
   async function crawlDirectory(baseUrl, options = {}) {
     const { maxDepth = 2, signal, throttleMs = 800, onDiscover } = options;
     const initial = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-    const queue = [{ fetchUrl: initial, linkUrl: initial, depth: 0 }];
+    const initialFetch = initial.startsWith(LOCAL_PROXY_PREFIX) ? initial : buildLocalProxyUrl(initial);
+    const queue = [{ fetchUrl: initialFetch, linkUrl: initial, depth: 0 }];
     const seen = /* @__PURE__ */ new Set();
     const files = [];
     while (queue.length) {
