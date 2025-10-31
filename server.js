@@ -4,6 +4,7 @@ const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const PROXY_TIMEOUT = Number(process.env.PROXY_TIMEOUT || 15000);
+const BING_IMAGE_API_KEY = process.env.BING_IMAGE_API_KEY || "";
 let latestPlaylist = "#EXTM3U";
 
 app.use(express.static(path.resolve(__dirname)));
@@ -53,6 +54,46 @@ app.get("/proxy", async (req, res) => {
     }
   } finally {
     clearTimeout(timeout);
+  }
+});
+
+app.get("/api/logos", async (req, res) => {
+  const query = (req.query.query || "").toString().trim();
+  const top = Math.min(Math.max(parseInt(req.query.top, 10) || 8, 1), 10);
+  if (!query) {
+    return res.json({ results: [] });
+  }
+  if (!BING_IMAGE_API_KEY) {
+    return res.json({ results: [] });
+  }
+  try {
+    const searchUrl = new URL("https://api.bing.microsoft.com/v7.0/images/search");
+    searchUrl.searchParams.set("q", `${query} channel logo`);
+    searchUrl.searchParams.set("count", String(top));
+    searchUrl.searchParams.set("safeSearch", "Strict");
+    searchUrl.searchParams.set("aspect", "wide");
+    const logoRes = await fetch(searchUrl, {
+      headers: {
+        "Ocp-Apim-Subscription-Key": BING_IMAGE_API_KEY
+      }
+    });
+    if (!logoRes.ok) {
+      const text = await logoRes.text();
+      return res.status(502).json({ results: [], error: text });
+    }
+    const data = await logoRes.json();
+    const results = Array.isArray(data?.value)
+      ? data.value
+          .map(item => ({
+            url: item.thumbnailUrl || item.contentUrl || "",
+            title: item.name || query,
+            source: item.hostPageDisplayUrl || item.hostPageUrl || ""
+          }))
+          .filter(item => item.url)
+      : [];
+    res.json({ results });
+  } catch (err) {
+    res.status(500).json({ results: [], error: err.message });
   }
 });
 
