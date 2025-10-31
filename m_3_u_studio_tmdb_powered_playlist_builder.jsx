@@ -155,6 +155,13 @@ async function searchTMDBMovies(apiKey, query) {
 }
 
 const VIDEO_EXTS = [".mp4", ".mkv", ".m3u8", ".avi", ".mov", ".ts", ".flv", ".wmv"];
+const QUALITY_TAGS = [
+  "dvdrip", "brrip", "hdrip", "bdrip", "bluray", "blu-ray", "webrip", "webdl", "web-dl",
+  "hdtv", "cam", "ts", "telesync", "tvrip", "uhd", "4k", "2160p", "1080p", "720p", "480p",
+  "xvid", "x264", "x265", "hevc", "aac", "dts", "dolby", "hdr", "proper", "repack",
+  "uncut", "extended", "imax", "remastered", "multi", "subs", "dubbed", "dual", "rip"
+];
+const QUALITY_REGEX = new RegExp(`\\b(${QUALITY_TAGS.join("|")})\\b`, "gi");
 const LOCAL_PROXY_PREFIX = "/proxy?url=";
 const REMOTE_PROXY_PREFIX = "https://r.jina.ai/";
 
@@ -270,12 +277,16 @@ function parseDirectoryListing(htmlOrText, baseUrl) {
 }
 
 function normalizeTitle(raw) {
-  return raw
+  let cleaned = raw
     .replace(/[_\.]+/g, " ")
-    .replace(/\s+/g, " ")
     .replace(/\s*(\(|\[).*?(DIVX|1080p|720p|x264|x265|BluRay|WEBRip|HDR).*(\)|\])\s*/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/\s+/g, " ");
+
+  cleaned = cleaned.replace(QUALITY_REGEX, " ");
+  cleaned = cleaned.replace(/-\s*(theatrical|extended|director's cut)$/i, " ");
+  cleaned = cleaned.replace(/\bpart\s*\d+$/i, " ");
+
+  return cleaned.replace(/\s+/g, " ").trim();
 }
 
 function parseMediaName(filename) {
