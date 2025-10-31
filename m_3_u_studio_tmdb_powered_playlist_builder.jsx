@@ -303,7 +303,7 @@ function parseMediaName(filename) {
 }
 
 async function crawlDirectory(baseUrl, options = {}) {
-  const { maxDepth = 2, signal, throttleMs = 800 } = options;
+  const { maxDepth = 2, signal, throttleMs = 800, onDiscover } = options;
   const initial = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
   const queue = [{ fetchUrl: initial, linkUrl: initial, depth: 0 }];
   const seen = new Set();
@@ -329,6 +329,7 @@ async function crawlDirectory(baseUrl, options = {}) {
         }
         if (entry.type === "dir") {
           if (depth < maxDepth) queue.push({ fetchUrl: resolvedFetch, linkUrl: resolvedLink, depth: depth + 1 });
+          onDiscover?.({ type: "dir", path: resolvedLink, depth: depth + 1 });
         } else {
           const lower = entry.name.toLowerCase();
           if (!VIDEO_EXTS.some(ext => lower.endsWith(ext))) continue;
@@ -337,6 +338,15 @@ async function crawlDirectory(baseUrl, options = {}) {
             url: resolvedLink,
             path: new URL(resolvedLink).pathname,
             depth
+          });
+          onDiscover?.({
+            type: "file",
+            entry: {
+              name: entry.name,
+              url: resolvedLink,
+              path: new URL(resolvedLink).pathname,
+              depth
+            }
           });
         }
       }
@@ -486,11 +496,12 @@ export default function App() {
   const [movieSuggestions, setMovieSuggestions] = useState([]);
   const [movieSearchBusy, setMovieSearchBusy] = useState(false);
   const movieSearchRun = useRef(0);
-  const [libraryUrl, setLibraryUrl] = useState(() => readLS("m3u_library_url", ""));
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [libraryError, setLibraryError] = useState("");
-  const [libraryMovies, setLibraryMovies] = useState([]);
-  const [libraryShows, setLibraryShows] = useState([]);
+const [libraryUrl, setLibraryUrl] = useState(() => readLS("m3u_library_url", ""));
+const [libraryLoading, setLibraryLoading] = useState(false);
+const [libraryError, setLibraryError] = useState("");
+const [libraryMovies, setLibraryMovies] = useState([]);
+const [libraryShows, setLibraryShows] = useState([]);
+const [libraryProgress, setLibraryProgress] = useState({ active: false, processed: 0, found: 0, logs: [], stage: "idle" });
 
   const inputClass = "w-full px-4 py-3 rounded-2xl border border-white/10 bg-slate-900/70 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-aurora/60 focus:border-transparent transition";
   const textareaClass = `${inputClass} min-h-[140px] leading-relaxed`;
@@ -594,15 +605,40 @@ export default function App() {
     setLibraryError("");
     setLibraryMovies([]);
     setLibraryShows([]);
+    setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling" });
     try {
-      const files = await crawlDirectory(url, { maxDepth: 3, throttleMs: 800 });
+      const files = await crawlDirectory(url, {
+        maxDepth: 3,
+        throttleMs: 800,
+        onDiscover: (info) => {
+          setLibraryProgress(prev => {
+            if (!prev.active) return prev;
+            if (info.type === "dir") {
+              const message = `Scanning ${info.path}`;
+              const logs = [message, ...prev.logs].slice(0, 6);
+              return { ...prev, logs, stage: "crawling" };
+            }
+            const message = `Found ${info.entry.path}`;
+            const logs = [message, ...prev.logs].slice(0, 6);
+            return {
+              ...prev,
+              processed: prev.processed + 1,
+              found: prev.found + 1,
+              logs,
+              stage: "crawling"
+            };
+          });
+        }
+      });
       if (!files.length) {
         setLibraryError("No playable media files detected at that URL.");
+        setLibraryProgress(prev => ({ ...prev, active: false, stage: "empty" }));
         return;
       }
       const candidates = buildLibraryCandidates(files);
       setLibraryMovies(candidates.movies.map(m => ({ ...m, suggestions: [], loading: false, error: "" })));
       setLibraryShows(candidates.shows.map(s => ({ ...s, suggestions: [], loading: false, error: "" })));
+      setLibraryProgress(prev => ({ ...prev, active: false, stage: "completed" }));
     } catch (err) {
       console.warn(err);
       const msg = err?.message || String(err);
@@ -613,6 +649,7 @@ export default function App() {
       } else {
         setLibraryError(msg || "Unable to crawl that URL.");
       }
+      setLibraryProgress(prev => ({ ...prev, active: false, stage: "error" }));
     } finally {
       setLibraryLoading(false);
     }
@@ -794,6 +831,40 @@ export default function App() {
             {libraryLoading && (
               <Card>
                 <div className="text-sm text-aurora/80">Crawling directories and analysing filenames…</div>
+              </Card>
+            )}
+
+            {(libraryProgress.active || libraryProgress.processed > 0 || libraryProgress.stage === "error") && (
+              <Card>
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <SectionTitle>
+                      {libraryProgress.stage === "completed"
+                        ? "Scan completed"
+                        : libraryProgress.stage === "error"
+                        ? "Scan incomplete"
+                        : "Scanning…"}
+                    </SectionTitle>
+                    <div className="text-xs text-slate-400">
+                      Found {libraryProgress.found} file{libraryProgress.found === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-900/60 overflow-hidden">
+                    <div
+                      className={`h-full ${libraryProgress.active ? "bg-gradient-to-r from-aurora via-sky-500 to-aurora animate-pulse" : "bg-aurora/60"}`}
+                      style={{ width: libraryProgress.active ? "100%" : "100%" }}
+                    />
+                  </div>
+                  {libraryProgress.logs.length > 0 && (
+                    <div className="space-y-1 text-xs text-slate-400">
+                      {libraryProgress.logs.map((log, idx) => (
+                        <div key={`${log}-${idx}`} className="truncate">
+                          {log}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </Card>
             )}
 
