@@ -21510,15 +21510,6 @@
   // m_3_u_studio_tmdb_powered_playlist_builder.jsx
   var import_react = __toESM(require_react());
   var import_freekeys = __toESM(require_freekeys());
-  var saveLS = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-  var readLS = (k, d) => {
-    try {
-      const v = JSON.parse(localStorage.getItem(k) || "null");
-      return v ?? d;
-    } catch {
-      return d;
-    }
-  };
   var pad = (n, len = 2) => String(n).padStart(len, "0");
   var sanitize = (s) => (s ?? "").toString().replace(/\n/g, " ").trim();
   function downloadText(filename, text) {
@@ -21979,20 +21970,67 @@
     });
     return lines.join("\n");
   }
-  var TabBtn = ({ active, onClick, children }) => /* @__PURE__ */ import_react.default.createElement(
+  var TabBtn = ({ active, onClick, children, icon }) => /* @__PURE__ */ import_react.default.createElement(
     "button",
     {
       onClick,
-      className: `px-4 py-2 md:px-5 md:py-3 rounded-full text-sm font-medium transition border ${active ? "bg-aurora text-midnight border-aurora shadow-glow" : "bg-slate-800/60 text-slate-300 border-transparent hover:text-white hover:border-aurora/60 hover:bg-slate-800"}`
+      className: `flex items-center gap-2 px-5 py-3 md:px-6 md:py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${active ? "bg-gradient-to-r from-aurora to-sky-500 text-midnight shadow-glow scale-105" : "bg-slate-800/40 text-slate-300 hover:text-white hover:bg-slate-800/70 hover:scale-102"}`
     },
+    icon && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-lg" }, icon),
     children
   );
-  var Card = ({ children }) => /* @__PURE__ */ import_react.default.createElement("div", { className: "rounded-3xl border border-white/10 bg-slate-900/60 p-6 shadow-xl shadow-black/20 backdrop-blur" }, children);
-  var SectionTitle = ({ children }) => /* @__PURE__ */ import_react.default.createElement("h3", { className: "text-lg font-semibold mb-4 text-white tracking-wide" }, children);
+  var Card = ({ children, className = "" }) => /* @__PURE__ */ import_react.default.createElement("div", { className: `rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900/80 to-slate-900/60 p-6 md:p-8 shadow-2xl shadow-black/30 backdrop-blur-sm ${className}` }, children);
+  var SectionTitle = ({ children, subtitle, badge }) => /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between mb-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h3", { className: "text-xl font-bold text-white tracking-tight flex items-center gap-3" }, children, badge && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xs font-medium px-3 py-1 rounded-full bg-aurora/20 text-aurora" }, badge)), subtitle && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-2" }, subtitle)));
+  var ErrorBoundary = class extends import_react.default.Component {
+    constructor(props) {
+      super(props);
+      this.state = { hasError: false, error: null };
+    }
+    static getDerivedStateFromError(error) {
+      return { hasError: true, error };
+    }
+    componentDidCatch(error, errorInfo) {
+      console.error("Error caught by boundary:", error, errorInfo);
+    }
+    render() {
+      if (this.state.hasError) {
+        return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-h-screen bg-gradient-to-br from-midnight via-slate-900 to-midnight flex items-center justify-center p-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "max-w-2xl w-full bg-slate-800/60 backdrop-blur-xl rounded-2xl border border-red-500/40 p-8 text-center" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-6" }, "\u{1F4A5}"), /* @__PURE__ */ import_react.default.createElement("h1", { className: "text-3xl font-bold text-white mb-4" }, "Oops! Something went wrong"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-300 mb-6" }, "The application encountered an unexpected error. Your data is safe in browser storage."), /* @__PURE__ */ import_react.default.createElement("div", { className: "bg-slate-900/60 rounded-xl p-4 mb-6 text-left" }, /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs font-mono text-red-300" }, this.state.error?.toString())), /* @__PURE__ */ import_react.default.createElement(
+          "button",
+          {
+            onClick: () => window.location.reload(),
+            className: "px-6 py-3 rounded-xl bg-aurora text-midnight font-semibold hover:bg-sky-400 transition-all shadow-lg"
+          },
+          "\u{1F504} Reload Application"
+        )));
+      }
+      return this.props.children;
+    }
+  };
   function App() {
     const [apiKey, setApiKey] = (0, import_react.useState)(readLS("tmdb_api_key", ""));
     const freekeyFetchAttempted = (0, import_react.useRef)(false);
-    const [active, setActive] = (0, import_react.useState)("channels");
+    const [active, setActive] = (0, import_react.useState)("dashboard");
+    const [toasts, setToasts] = (0, import_react.useState)([]);
+    const toastIdCounter = (0, import_react.useRef)(0);
+    const showToast = (0, import_react.useCallback)((message, type = "info") => {
+      const id = toastIdCounter.current++;
+      const toast = { id, message, type };
+      setToasts((prev) => [...prev, toast]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 5e3);
+    }, []);
+    const [channelSearchQuery, setChannelSearchQuery] = (0, import_react.useState)("");
+    const [channelGroupFilter, setChannelGroupFilter] = (0, import_react.useState)("all");
+    const [showSearchFilter, setShowSearchFilter] = (0, import_react.useState)("");
+    const [movieSearchFilter, setMovieSearchFilter] = (0, import_react.useState)("");
+    const [selectedChannels, setSelectedChannels] = (0, import_react.useState)(/* @__PURE__ */ new Set());
+    const [selectedShows, setSelectedShows] = (0, import_react.useState)(/* @__PURE__ */ new Set());
+    const [selectedMovies, setSelectedMovies] = (0, import_react.useState)(/* @__PURE__ */ new Set());
+    const [epgSources, setEpgSources] = (0, import_react.useState)(() => readLS("m3u_epg_sources", []));
+    const [selectedEpgSources, setSelectedEpgSources] = (0, import_react.useState)(/* @__PURE__ */ new Set());
+    const [epgMappings, setEpgMappings] = (0, import_react.useState)(() => readLS("m3u_epg_mappings", {}));
+    const [autoMapStatus, setAutoMapStatus] = (0, import_react.useState)({ active: false, matched: 0, total: 0 });
     const [channels, setChannels] = (0, import_react.useState)(() => readLS("m3u_channels", []));
     const [channelLogoQuery, setChannelLogoQuery] = (0, import_react.useState)("");
     const [channelLogoLoading, setChannelLogoLoading] = (0, import_react.useState)(false);
@@ -22051,13 +22089,13 @@
       if (typeof window === "undefined") return "/playlist.m3u";
       return `${window.location.origin}/playlist.m3u`;
     }, []);
-    const inputClass = "w-full px-4 py-3 rounded-2xl border border-white/10 bg-slate-900/70 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-aurora/60 focus:border-transparent transition";
-    const textareaClass = `${inputClass} min-h-[140px] leading-relaxed`;
-    const baseButton = "inline-flex items-center justify-center px-5 py-3 rounded-full font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950";
-    const primaryButton = `${baseButton} bg-gradient-to-r from-aurora to-sky-500 text-midnight focus:ring-aurora/50 shadow-glow hover:from-aurora/90 hover:to-sky-400`;
-    const secondaryButton = `${baseButton} border border-white/10 bg-slate-900/70 text-slate-200 focus:ring-aurora/30 hover:border-aurora/40 hover:text-white`;
-    const ghostButton = `${baseButton} border border-white/10 text-slate-200 bg-transparent focus:ring-aurora/30 hover:border-aurora/50 hover:text-white`;
-    const dangerButton = `${baseButton} border border-red-500/40 text-red-200 bg-red-500/10 focus:ring-red-400/50 hover:bg-red-500/20`;
+    const inputClass = "w-full px-4 py-3 rounded-xl border border-white/10 bg-slate-900/70 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-aurora/60 focus:border-aurora/50 transition-all duration-200";
+    const textareaClass = `${inputClass} min-h-[140px] leading-relaxed resize-none`;
+    const baseButton = "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-not-allowed";
+    const primaryButton = `${baseButton} bg-gradient-to-r from-aurora to-sky-500 text-midnight focus:ring-aurora/50 shadow-lg hover:shadow-glow hover:scale-105 active:scale-95`;
+    const secondaryButton = `${baseButton} border border-white/20 bg-slate-800/60 text-slate-200 focus:ring-aurora/30 hover:border-aurora/40 hover:bg-slate-800 hover:text-white`;
+    const ghostButton = `${baseButton} border border-white/10 text-slate-300 bg-transparent focus:ring-aurora/30 hover:border-aurora/50 hover:text-aurora hover:bg-aurora/5`;
+    const dangerButton = `${baseButton} border border-red-500/40 text-red-300 bg-red-500/10 focus:ring-red-400/50 hover:bg-red-500/20 hover:border-red-500/60`;
     const m3u = (0, import_react.useMemo)(() => buildM3U({ channels, shows, movies }), [channels, shows, movies]);
     const libraryCandidates = (0, import_react.useMemo)(() => buildLibraryCandidates(libraryFileEntries), [libraryFileEntries]);
     (0, import_react.useEffect)(() => {
@@ -22100,6 +22138,8 @@
     (0, import_react.useEffect)(() => saveLS("m3u_shows", shows), [shows]);
     (0, import_react.useEffect)(() => saveLS("m3u_movies", movies), [movies]);
     (0, import_react.useEffect)(() => saveLS("m3u_library_url", libraryUrl), [libraryUrl]);
+    (0, import_react.useEffect)(() => saveLS("m3u_epg_sources", epgSources), [epgSources]);
+    (0, import_react.useEffect)(() => saveLS("m3u_epg_mappings", epgMappings), [epgMappings]);
     (0, import_react.useEffect)(() => {
       if (!m3u) return;
       let cancelled = false;
@@ -22292,7 +22332,7 @@
     };
     const fetchLibraryCatalog = async () => {
       const url = libraryUrl.trim();
-      if (!url) return alert("Enter a base URL to crawl.");
+      if (!url) return showToast("Enter a base URL to crawl.", "error");
       setLibraryLoading(true);
       setLibraryError("");
       setLibraryMovies([]);
@@ -22355,7 +22395,7 @@
       }
     };
     const matchLibraryMovie = async (movie) => {
-      if (!apiKey) return alert("Add your TMDB API key first");
+      if (!apiKey) return showToast("Add your TMDB API key first", "error");
       updateLibraryMovie(movie.key, (m) => ({ ...m, loading: true, error: "" }));
       try {
         const results = await searchTMDBMovies(apiKey, movie.title);
@@ -22365,7 +22405,7 @@
       }
     };
     const matchLibraryShow = async (show) => {
-      if (!apiKey) return alert("Add your TMDB API key first");
+      if (!apiKey) return showToast("Add your TMDB API key first", "error");
       updateLibraryShow(show.key, (s) => ({ ...s, loading: true, error: "" }));
       try {
         const results = await searchTMDBShows(apiKey, show.title);
@@ -22377,7 +22417,7 @@
     const addMovieFromSuggestion = async (movie, suggestion) => {
       await importMovie(String(suggestion.id), { url: movie.entries[0]?.url || "", group: "Movies" });
       setLibraryMovies((ms) => ms.filter((m) => m.key !== movie.key));
-      alert(`Imported "${suggestion.title}" with stream URL attached.`);
+      showToast(`Imported "${suggestion.title}" with stream URL attached.`, "success");
     };
     const addShowFromSuggestion = async (show, suggestion) => {
       const episodeMap = {};
@@ -22387,7 +22427,7 @@
       });
       await importShow(String(suggestion.id), { episodeMap, group: "TV Shows" });
       setLibraryShows((ms) => ms.filter((s) => s.key !== show.key));
-      alert(`Imported "${suggestion.title}" with ${Object.keys(episodeMap).length} episodes linked.`);
+      showToast(`Imported "${suggestion.title}" with ${Object.keys(episodeMap).length} episodes linked.`, "success");
     };
     const addChannel = () => setChannels((cs) => [...cs, { id: `ch-${Date.now()}`, name: "New Channel", url: "", logo: "", group: "Live", chno: cs.length + 1 }]);
     const updateChannel = (idx, patch) => setChannels((cs) => cs.map((c, i) => i === idx ? { ...c, ...patch } : c));
@@ -22412,8 +22452,67 @@
       setChannelImports((prev) => prev.filter((record) => record.id !== id));
       setChannels((cs) => cs.filter((ch) => ch.importId !== id));
     };
+    const addEpgSource = () => {
+      const newSource = {
+        id: `epg-${Date.now()}`,
+        name: "New EPG Source",
+        url: "",
+        enabled: true,
+        createdAt: Date.now()
+      };
+      setEpgSources((prev) => [...prev, newSource]);
+    };
+    const updateEpgSource = (id, updates) => {
+      setEpgSources((prev) => prev.map((epg) => epg.id === id ? { ...epg, ...updates } : epg));
+    };
+    const removeEpgSource = (id) => {
+      setEpgSources((prev) => prev.filter((epg) => epg.id !== id));
+      setEpgMappings((prev) => {
+        const newMappings = { ...prev };
+        Object.keys(newMappings).forEach((channelId) => {
+          if (newMappings[channelId]?.epgSourceId === id) {
+            delete newMappings[channelId];
+          }
+        });
+        return newMappings;
+      });
+    };
+    const setChannelEpgMapping = (channelId, epgChannelId, epgSourceId) => {
+      setEpgMappings((prev) => ({
+        ...prev,
+        [channelId]: { epgChannelId, epgSourceId }
+      }));
+    };
+    const clearChannelEpgMapping = (channelId) => {
+      setEpgMappings((prev) => {
+        const newMappings = { ...prev };
+        delete newMappings[channelId];
+        return newMappings;
+      });
+    };
+    const autoMapEpgChannels = async () => {
+      if (epgSources.length === 0) {
+        showToast("Please add at least one EPG source first", "error");
+        return;
+      }
+      setAutoMapStatus({ active: true, matched: 0, total: channels.length });
+      let matched = 0;
+      channels.forEach((channel) => {
+        if (!channel.name) return;
+        const channelNameLower = channel.name.toLowerCase().trim();
+        if (channel.id) {
+          const firstEpg = epgSources[0];
+          if (firstEpg && firstEpg.enabled) {
+            setChannelEpgMapping(channel.id, channel.id, firstEpg.id);
+            matched++;
+          }
+        }
+      });
+      setAutoMapStatus({ active: false, matched, total: channels.length });
+      showToast(`Auto-mapping complete! ${matched} of ${channels.length} channels mapped.`, "success");
+    };
     const importShow = async (tmdbId, options = {}) => {
-      if (!apiKey) return alert("Add your TMDB API key first");
+      if (!apiKey) return showToast("Add your TMDB API key first", "error");
       const s = await fetchTMDBShow(apiKey, tmdbId);
       const episodeMap = options.episodeMap || {};
       const customGroup = options.group;
@@ -22446,7 +22545,7 @@
     const guessPattern = (id, samples) => {
       const { pattern, notes } = inferPattern(samples);
       setShowPatch(id, { pattern });
-      if (notes) alert(notes + "\nPattern: " + pattern);
+      if (notes) showToast(notes + "\nPattern: " + pattern, "info");
     };
     const fillShowUrls = (id) => {
       setShows((ss) => ss.map((s) => {
@@ -22459,7 +22558,7 @@
       }));
     };
     const importMovie = async (tmdbId, options = {}) => {
-      if (!apiKey) return alert("Add your TMDB API key first");
+      if (!apiKey) return showToast("Add your TMDB API key first", "error");
       const m = await fetchTMDBMovie(apiKey, tmdbId);
       setMovies((prev) => [
         ...prev,
@@ -22475,7 +22574,165 @@
       ]);
     };
     const setMoviePatch = (id, patch) => setMovies((ms) => ms.map((m) => m.id === id ? { ...m, ...patch } : m));
-    return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-h-screen text-slate-100 pb-16" }, /* @__PURE__ */ import_react.default.createElement("header", { className: "sticky top-0 z-20 border-b border-white/10 bg-slate-950/70 backdrop-blur-xl" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "max-w-6xl mx-auto px-6 py-6 flex flex-col gap-5 md:flex-row md:items-center" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start md:items-center gap-4 flex-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-aurora to-sky-500 text-midnight text-lg font-semibold shadow-glow" }, "M3"), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-2xl font-semibold text-white" }, "M3U Studio"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, "Craft cinematic IPTV playlists with TMDB powered metadata."))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col md:flex-row md:items-center gap-3 w-full md:w-auto" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} w-full md:w-80`, placeholder: "TMDB API key", value: apiKey, onChange: (e) => setApiKey(e.target.value) }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(apiKey) }, "Copy"))), /* @__PURE__ */ import_react.default.createElement("nav", { className: "max-w-6xl mx-auto px-6 pb-6 flex flex-wrap gap-3" }, /* @__PURE__ */ import_react.default.createElement(TabBtn, { active: active === "channels", onClick: () => setActive("channels") }, "Channels"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { active: active === "shows", onClick: () => setActive("shows") }, "TV Shows"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { active: active === "movies", onClick: () => setActive("movies") }, "Movies"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { active: active === "library", onClick: () => setActive("library") }, "Library Index"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { active: active === "playlist", onClick: () => setActive("playlist") }, "Playlist .m3u"))), /* @__PURE__ */ import_react.default.createElement("main", { className: "max-w-6xl mx-auto px-6 py-10 space-y-8" }, active === "library" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Ingest HTTP Directory"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 max-w-3xl" }, "Paste the base URL to a directory index (Apache/nginx style). We\u2019ll discover playable files, infer titles, and help you import them with TMDB metadata and stream URLs attached."), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Base URL"), /* @__PURE__ */ import_react.default.createElement(
+    const exportBackup = () => {
+      const backup = {
+        version: "1.0.0",
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        data: {
+          apiKey,
+          channels,
+          channelImports,
+          shows,
+          movies,
+          epgSources,
+          epgMappings
+        }
+      };
+      const json = JSON.stringify(backup, null, 2);
+      downloadText(`m3u-studio-backup-${Date.now()}.json`, json);
+      showToast("Backup exported successfully!", "success");
+    };
+    const importBackup = async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      event.target.value = "";
+      try {
+        const text = await file.text();
+        const backup = JSON.parse(text);
+        if (!backup.version || !backup.data) {
+          showToast("Invalid backup file format", "error");
+          return;
+        }
+        if (window.confirm("This will replace all current data. Continue?")) {
+          const { data } = backup;
+          if (data.apiKey) setApiKey(data.apiKey);
+          if (data.channels) setChannels(data.channels);
+          if (data.channelImports) setChannelImports(data.channelImports);
+          if (data.shows) setShows(data.shows);
+          if (data.movies) setMovies(data.movies);
+          if (data.epgSources) setEpgSources(data.epgSources);
+          if (data.epgMappings) setEpgMappings(data.epgMappings);
+          showToast("Backup restored successfully!", "success");
+        }
+      } catch (err) {
+        showToast("Failed to restore backup: " + err.message, "error");
+      }
+    };
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-h-screen text-slate-100 pb-16" }, /* @__PURE__ */ import_react.default.createElement("header", { className: "sticky top-0 z-30 border-b border-white/10 bg-slate-950/90 backdrop-blur-xl shadow-xl" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "py-6 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-aurora via-sky-400 to-sky-500 text-midnight text-xl font-bold shadow-glow" }, "M3"), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-2xl md:text-3xl font-bold bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent" }, "M3U Studio"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, "Build stunning IPTV playlists with TMDB"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col sm:flex-row items-stretch sm:items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "relative flex-1 sm:w-80" }, /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: `${inputClass} pr-20`,
+        placeholder: "TMDB API key",
+        value: apiKey,
+        onChange: (e) => setApiKey(e.target.value),
+        type: "password"
+      }
+    ), apiKey && /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: "absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-aurora/20 text-aurora hover:bg-aurora/30 transition-all",
+        onClick: () => navigator.clipboard.writeText(apiKey)
+      },
+      "Copy"
+    )), playlistSyncStatus !== "idle" && /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/60 text-xs font-medium" }, playlistSyncStatus === "syncing" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora animate-pulse" }, "\u25CF Syncing..."), playlistSyncStatus === "saved" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-green-400" }, "\u25CF Saved"), playlistSyncStatus === "error" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-red-400" }, "\u25CF Error")))), /* @__PURE__ */ import_react.default.createElement("nav", { className: "pb-4 flex gap-2 overflow-x-auto scrollbar-hide" }, /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\uFFFD", active: active === "dashboard", onClick: () => setActive("dashboard") }, "Dashboard"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\uFFFD\u{1F4FA}", active: active === "channels", onClick: () => setActive("channels") }, "Channels", channels.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, channels.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4E1}", active: active === "epg", onClick: () => setActive("epg") }, "EPG", epgSources.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, epgSources.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F3AC}", active: active === "shows", onClick: () => setActive("shows") }, "TV Shows", shows.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, shows.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F3A5}", active: active === "movies", onClick: () => setActive("movies") }, "Movies", movies.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, movies.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4C2}", active: active === "library", onClick: () => setActive("library") }, "Library"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4CB}", active: active === "playlist", onClick: () => setActive("playlist") }, "Export")))), /* @__PURE__ */ import_react.default.createElement("main", { className: "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 space-y-8" }, active === "dashboard" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h2", { className: "text-3xl font-bold text-white" }, "Dashboard"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400 mt-1" }, "Overview of your IPTV management system"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" }, /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F4FA}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-blue-500/20 text-blue-300" }, "Live")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, channels.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Live Channels"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, channelImports.length, " playlist", channelImports.length !== 1 ? "s" : "", " imported"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F3AC}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-purple-500/20 text-purple-300" }, "Series")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, shows.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "TV Shows"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, shows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0), " total episodes"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-pink-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-pink-500/20 text-pink-300" }, "VOD")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, movies.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Movies"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, "On-demand content"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-aurora/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F4CB}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-aurora/20 text-aurora" }, "Total")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, channels.length + shows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0) + movies.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Total Entries"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, "In playlist")))), /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, { subtitle: "Breakdown of your live channels by category" }, "\u{1F4CA} Channel Distribution"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" }, (() => {
+      const groups = {};
+      channels.forEach((ch) => {
+        const group = ch.group || "Uncategorized";
+        groups[group] = (groups[group] || 0) + 1;
+      });
+      return Object.entries(groups).sort((a, b) => b[1] - a[1]).slice(0, 9).map(([group, count]) => /* @__PURE__ */ import_react.default.createElement("div", { key: group, className: "flex items-center justify-between p-4 rounded-xl bg-slate-800/40 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "w-10 h-10 rounded-lg bg-gradient-to-br from-aurora/20 to-sky-500/20 flex items-center justify-center text-lg" }, "\u{1F4E1}"), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white text-sm" }, group), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, count, " channel", count !== 1 ? "s" : ""))), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-2xl font-bold text-aurora" }, count)));
+    })(), channels.length === 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "col-span-full text-center py-8 text-slate-500" }, "No channels added yet. Start by importing an M3U file or adding channels manually."))), /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, { subtitle: "Common tasks and operations" }, "\u26A1 Quick Actions"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" }, /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: () => setActive("channels"),
+        className: "flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, "\u{1F4FA}"),
+      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white group-hover:text-aurora transition-colors" }, "Manage Channels"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400 mt-1" }, "Add, edit, or import live channels"))
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: () => setActive("shows"),
+        className: "flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, "\u{1F3AC}"),
+      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white group-hover:text-aurora transition-colors" }, "Add TV Shows"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400 mt-1" }, "Search TMDB and add series"))
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: () => setActive("movies"),
+        className: "flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, "\u{1F3A5}"),
+      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white group-hover:text-aurora transition-colors" }, "Add Movies"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400 mt-1" }, "Search TMDB and add films"))
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: () => setActive("library"),
+        className: "flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, "\u{1F4C2}"),
+      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white group-hover:text-aurora transition-colors" }, "Scan Library"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400 mt-1" }, "Auto-discover media from directories"))
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: () => setActive("playlist"),
+        className: "flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, "\u{1F4CB}"),
+      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white group-hover:text-aurora transition-colors" }, "Export Playlist"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400 mt-1" }, "Download your M3U playlist"))
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: exportBackup,
+        className: "flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-green-500/40 hover:bg-slate-800/80 transition-all text-left group"
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, "\u{1F4BE}"),
+      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white group-hover:text-green-400 transition-colors" }, "Export Backup"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400 mt-1" }, "Download all your data as JSON"))
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: () => document.getElementById("backup-import-input")?.click(),
+        className: "flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-blue-500/40 hover:bg-slate-800/80 transition-all text-left group"
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, "\u{1F4E5}"),
+      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white group-hover:text-blue-400 transition-colors" }, "Import Backup"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400 mt-1" }, "Restore from a backup file"))
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        id: "backup-import-input",
+        type: "file",
+        accept: ".json",
+        onChange: importBackup,
+        className: "hidden"
+      }
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: () => {
+          if (apiKey) {
+            navigator.clipboard.writeText(apiKey);
+            showToast("API key copied to clipboard!", "success");
+          } else {
+            showToast("Please add your TMDB API key first", "error");
+          }
+        },
+        className: "flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl" }, "\u{1F511}"),
+      /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white group-hover:text-aurora transition-colors" }, "Copy API Key"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400 mt-1" }, "Copy TMDB API key to clipboard"))
+    ))), channelImports.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, { subtitle: "Recently imported playlists" }, "\u{1F552} Recent Imports"), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-3" }, channelImports.slice(0, 5).map((imp) => {
+      const linkedChannels = channelsByImport.get(imp.id) || [];
+      const importDate = imp.createdAt ? new Date(imp.createdAt).toLocaleDateString() : "";
+      return /* @__PURE__ */ import_react.default.createElement("div", { key: imp.id, className: "flex items-center justify-between p-4 rounded-xl bg-slate-800/40 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "w-10 h-10 rounded-lg bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center" }, "\u2713"), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white text-sm" }, imp.name), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, linkedChannels.length, " channels \xB7 ", importDate))), /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          onClick: () => setActive("channels"),
+          className: "text-xs font-medium px-3 py-1.5 rounded-lg bg-aurora/20 text-aurora hover:bg-aurora/30 transition-all"
+        },
+        "View"
+      ));
+    })))), active === "library" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Ingest HTTP Directory"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 max-w-3xl" }, "Paste the base URL to a directory index (Apache/nginx style). We\u2019ll discover playable files, infer titles, and help you import them with TMDB metadata and stream URLs attached."), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Base URL"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         className: `${inputClass} mt-2`,
@@ -22489,14 +22746,75 @@
         className: `h-full ${libraryProgress.active ? "bg-gradient-to-r from-aurora via-sky-500 to-aurora animate-pulse" : "bg-aurora/60"}`,
         style: { width: libraryProgress.active ? "100%" : "100%" }
       }
-    )), libraryProgress.logs.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-1 text-xs text-slate-400" }, libraryProgress.logs.map((log, idx) => /* @__PURE__ */ import_react.default.createElement("div", { key: `${log}-${idx}`, className: "truncate" }, log))))), libraryDuplicates.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-3" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Duplicate streams detected (", libraryDuplicates.length, ")"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400" }, "Duplicates are ignored for TMDB matching. Review and remove if needed."), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-1 text-xs text-slate-400 max-h-40 overflow-y-auto" }, libraryDuplicates.slice(0, 20).map((dup, idx) => /* @__PURE__ */ import_react.default.createElement("div", { key: `${dup.path}-${idx}`, className: "truncate" }, dup.path)), libraryDuplicates.length > 20 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, "\u2026and ", libraryDuplicates.length - 20, " more")))), libraryMovies.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Detected Movies (", libraryMovies.length, ")")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-4" }, libraryMovies.map((movie) => /* @__PURE__ */ import_react.default.createElement("div", { key: movie.key, className: "rounded-2xl border border-white/10 bg-slate-950/60 p-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-3 md:flex-row md:items-start md:justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-lg font-semibold text-white" }, movie.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-1 flex gap-3" }, movie.year && /* @__PURE__ */ import_react.default.createElement("span", null, "Year hint: ", movie.year), /* @__PURE__ */ import_react.default.createElement("span", null, movie.entries.length, " file", movie.entries.length > 1 ? "s" : "")), /* @__PURE__ */ import_react.default.createElement("details", { className: "mt-3" }, /* @__PURE__ */ import_react.default.createElement("summary", { className: "text-xs text-slate-400 cursor-pointer select-none" }, "Show file paths"), /* @__PURE__ */ import_react.default.createElement("ul", { className: "mt-2 space-y-1 text-xs text-slate-400" }, movie.entries.map((entry) => /* @__PURE__ */ import_react.default.createElement("li", { key: entry.url, className: "break-all" }, entry.path))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 md:items-end" }, /* @__PURE__ */ import_react.default.createElement("button", { className: `${ghostButton} w-full md:w-auto`, onClick: () => matchLibraryMovie(movie), disabled: movie.loading }, movie.loading ? "Searching TMDB\u2026" : "Find on TMDB"), movie.error && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-red-300 text-right max-w-xs" }, movie.error))), movie.suggestions && movie.suggestions.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 grid gap-3 md:grid-cols-2" }, movie.suggestions.map((sug) => /* @__PURE__ */ import_react.default.createElement("div", { key: sug.id, className: "rounded-2xl border border-white/10 bg-slate-900/60 p-3 flex flex-col gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-white" }, sug.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 flex gap-2" }, sug.date && /* @__PURE__ */ import_react.default.createElement("span", null, sug.date.slice(0, 4)), /* @__PURE__ */ import_react.default.createElement("span", null, "TMDB #", sug.id), sug.vote ? /* @__PURE__ */ import_react.default.createElement("span", null, "\u2605 ", sug.vote.toFixed(1)) : null), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 leading-relaxed line-clamp-3" }, sug.overview), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: () => addMovieFromSuggestion(movie, sug) }, "Add movie with stream")))))))), libraryShows.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Detected Series (", libraryShows.length, ")")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-4" }, libraryShows.map((show) => /* @__PURE__ */ import_react.default.createElement("div", { key: show.key, className: "rounded-2xl border border-white/10 bg-slate-950/60 p-4 space-y-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-3 md:flex-row md:items-start md:justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-lg font-semibold text-white" }, show.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-1" }, show.episodes.length, " episode file", show.episodes.length !== 1 ? "s" : ""), /* @__PURE__ */ import_react.default.createElement("details", { className: "mt-3" }, /* @__PURE__ */ import_react.default.createElement("summary", { className: "text-xs text-slate-400 cursor-pointer select-none" }, "Show episode files"), /* @__PURE__ */ import_react.default.createElement("ul", { className: "mt-2 space-y-1 text-xs text-slate-400" }, show.episodes.slice().sort((a, b) => a.season - b.season || a.episode - b.episode).map((ep) => /* @__PURE__ */ import_react.default.createElement("li", { key: `${ep.url}`, className: "break-all" }, "S", String(ep.season).padStart(2, "0"), "E", String(ep.episode).padStart(2, "0"), " \u2014 ", ep.path))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 md:items-end" }, /* @__PURE__ */ import_react.default.createElement("button", { className: `${ghostButton} w-full md:w-auto`, onClick: () => matchLibraryShow(show), disabled: show.loading }, show.loading ? "Searching TMDB\u2026" : "Find on TMDB"), show.error && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-red-300 text-right max-w-xs" }, show.error))), show.suggestions && show.suggestions.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 grid gap-3 md:grid-cols-2" }, show.suggestions.map((sug) => /* @__PURE__ */ import_react.default.createElement("div", { key: sug.id, className: "rounded-2xl border border-white/10 bg-slate-900/60 p-3 flex flex-col gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-white" }, sug.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 flex gap-2" }, sug.date && /* @__PURE__ */ import_react.default.createElement("span", null, sug.date.slice(0, 4)), /* @__PURE__ */ import_react.default.createElement("span", null, "TMDB #", sug.id), sug.vote ? /* @__PURE__ */ import_react.default.createElement("span", null, "\u2605 ", sug.vote.toFixed(1)) : null), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 leading-relaxed line-clamp-3" }, sug.overview), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: () => addShowFromSuggestion(show, sug) }, "Add series with streams"))))))))), active === "channels" && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Channels"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 max-w-2xl" }, "Manage live streams, logos, and EPG metadata for your channel lineup.")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col sm:flex-row gap-2 sm:items-center" }, /* @__PURE__ */ import_react.default.createElement(
+    )), libraryProgress.logs.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-1 text-xs text-slate-400" }, libraryProgress.logs.map((log, idx) => /* @__PURE__ */ import_react.default.createElement("div", { key: `${log}-${idx}`, className: "truncate" }, log))))), libraryDuplicates.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-3" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Duplicate streams detected (", libraryDuplicates.length, ")"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400" }, "Duplicates are ignored for TMDB matching. Review and remove if needed."), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-1 text-xs text-slate-400 max-h-40 overflow-y-auto" }, libraryDuplicates.slice(0, 20).map((dup, idx) => /* @__PURE__ */ import_react.default.createElement("div", { key: `${dup.path}-${idx}`, className: "truncate" }, dup.path)), libraryDuplicates.length > 20 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, "\u2026and ", libraryDuplicates.length - 20, " more")))), libraryMovies.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Detected Movies (", libraryMovies.length, ")")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-4" }, libraryMovies.map((movie) => /* @__PURE__ */ import_react.default.createElement("div", { key: movie.key, className: "rounded-2xl border border-white/10 bg-slate-950/60 p-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-3 md:flex-row md:items-start md:justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-lg font-semibold text-white" }, movie.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-1 flex gap-3" }, movie.year && /* @__PURE__ */ import_react.default.createElement("span", null, "Year hint: ", movie.year), /* @__PURE__ */ import_react.default.createElement("span", null, movie.entries.length, " file", movie.entries.length > 1 ? "s" : "")), /* @__PURE__ */ import_react.default.createElement("details", { className: "mt-3" }, /* @__PURE__ */ import_react.default.createElement("summary", { className: "text-xs text-slate-400 cursor-pointer select-none" }, "Show file paths"), /* @__PURE__ */ import_react.default.createElement("ul", { className: "mt-2 space-y-1 text-xs text-slate-400" }, movie.entries.map((entry) => /* @__PURE__ */ import_react.default.createElement("li", { key: entry.url, className: "break-all" }, entry.path))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 md:items-end" }, /* @__PURE__ */ import_react.default.createElement("button", { className: `${ghostButton} w-full md:w-auto`, onClick: () => matchLibraryMovie(movie), disabled: movie.loading }, movie.loading ? "Searching TMDB\u2026" : "Find on TMDB"), movie.error && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-red-300 text-right max-w-xs" }, movie.error))), movie.suggestions && movie.suggestions.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 grid gap-3 md:grid-cols-2" }, movie.suggestions.map((sug) => /* @__PURE__ */ import_react.default.createElement("div", { key: sug.id, className: "rounded-2xl border border-white/10 bg-slate-900/60 p-3 flex flex-col gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-white" }, sug.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 flex gap-2" }, sug.date && /* @__PURE__ */ import_react.default.createElement("span", null, sug.date.slice(0, 4)), /* @__PURE__ */ import_react.default.createElement("span", null, "TMDB #", sug.id), sug.vote ? /* @__PURE__ */ import_react.default.createElement("span", null, "\u2605 ", sug.vote.toFixed(1)) : null), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 leading-relaxed line-clamp-3" }, sug.overview), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: () => addMovieFromSuggestion(movie, sug) }, "Add movie with stream")))))))), libraryShows.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Detected Series (", libraryShows.length, ")")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-4" }, libraryShows.map((show) => /* @__PURE__ */ import_react.default.createElement("div", { key: show.key, className: "rounded-2xl border border-white/10 bg-slate-950/60 p-4 space-y-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-3 md:flex-row md:items-start md:justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-lg font-semibold text-white" }, show.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-1" }, show.episodes.length, " episode file", show.episodes.length !== 1 ? "s" : ""), /* @__PURE__ */ import_react.default.createElement("details", { className: "mt-3" }, /* @__PURE__ */ import_react.default.createElement("summary", { className: "text-xs text-slate-400 cursor-pointer select-none" }, "Show episode files"), /* @__PURE__ */ import_react.default.createElement("ul", { className: "mt-2 space-y-1 text-xs text-slate-400" }, show.episodes.slice().sort((a, b) => a.season - b.season || a.episode - b.episode).map((ep) => /* @__PURE__ */ import_react.default.createElement("li", { key: `${ep.url}`, className: "break-all" }, "S", String(ep.season).padStart(2, "0"), "E", String(ep.episode).padStart(2, "0"), " \u2014 ", ep.path))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 md:items-end" }, /* @__PURE__ */ import_react.default.createElement("button", { className: `${ghostButton} w-full md:w-auto`, onClick: () => matchLibraryShow(show), disabled: show.loading }, show.loading ? "Searching TMDB\u2026" : "Find on TMDB"), show.error && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-red-300 text-right max-w-xs" }, show.error))), show.suggestions && show.suggestions.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 grid gap-3 md:grid-cols-2" }, show.suggestions.map((sug) => /* @__PURE__ */ import_react.default.createElement("div", { key: sug.id, className: "rounded-2xl border border-white/10 bg-slate-900/60 p-3 flex flex-col gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-white" }, sug.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 flex gap-2" }, sug.date && /* @__PURE__ */ import_react.default.createElement("span", null, sug.date.slice(0, 4)), /* @__PURE__ */ import_react.default.createElement("span", null, "TMDB #", sug.id), sug.vote ? /* @__PURE__ */ import_react.default.createElement("span", null, "\u2605 ", sug.vote.toFixed(1)) : null), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 leading-relaxed line-clamp-3" }, sug.overview), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: () => addShowFromSuggestion(show, sug) }, "Add series with streams"))))))))), active === "channels" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F4FA} Live Channels"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 max-w-2xl" }, "Manage live streams, logos, and EPG metadata for your channel lineup.")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col sm:flex-row gap-2 sm:items-center" }, /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
         className: secondaryButton,
         onClick: () => channelImportInputRef.current?.click()
       },
-      "Import .m3u file"
-    ), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: addChannel }, "Add channel"))), /* @__PURE__ */ import_react.default.createElement(
+      "\u{1F4E5} Import M3U"
+    ), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: addChannel }, "\u2795 Add Channel"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-800/40 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "Search Channels"), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        type: "text",
+        className: inputClass,
+        placeholder: "Search by name or URL...",
+        value: channelSearchQuery,
+        onChange: (e) => setChannelSearchQuery(e.target.value)
+      }
+    )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "Filter by Group"), /* @__PURE__ */ import_react.default.createElement(
+      "select",
+      {
+        className: inputClass,
+        value: channelGroupFilter,
+        onChange: (e) => setChannelGroupFilter(e.target.value)
+      },
+      /* @__PURE__ */ import_react.default.createElement("option", { value: "all" }, "All Groups"),
+      (() => {
+        const groups = new Set(channels.map((ch) => ch.group || "Uncategorized"));
+        return Array.from(groups).sort().map((group) => /* @__PURE__ */ import_react.default.createElement("option", { key: group, value: group }, group));
+      })()
+    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-end gap-2" }, /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: `${ghostButton} flex-1`,
+        onClick: () => {
+          setChannelSearchQuery("");
+          setChannelGroupFilter("all");
+          setSelectedChannels(/* @__PURE__ */ new Set());
+        }
+      },
+      "Clear Filters"
+    ), selectedChannels.size > 0 && /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: dangerButton,
+        onClick: () => {
+          if (window.confirm(`Delete ${selectedChannels.size} selected channel${selectedChannels.size > 1 ? "s" : ""}?`)) {
+            setChannels((cs) => cs.filter((_, i) => !selectedChannels.has(i)));
+            setSelectedChannels(/* @__PURE__ */ new Set());
+          }
+        }
+      },
+      "\u{1F5D1}\uFE0F Delete (",
+      selectedChannels.size,
+      ")"
+    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-slate-400" }, "Showing ", (() => {
+      const filtered = channels.filter((ch, idx) => {
+        const searchLower = channelSearchQuery.toLowerCase();
+        const matchesSearch = !searchLower || ch.name?.toLowerCase().includes(searchLower) || ch.url?.toLowerCase().includes(searchLower);
+        const matchesGroup = channelGroupFilter === "all" || (ch.group || "Uncategorized") === channelGroupFilter;
+        return matchesSearch && matchesGroup;
+      });
+      return filtered.length;
+    })(), " of ", channels.length, " channels"), selectedChannels.size > 0 && /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: "text-aurora hover:text-sky-400 text-sm font-medium",
+        onClick: () => setSelectedChannels(/* @__PURE__ */ new Set())
+      },
+      "Deselect all"
+    )))), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         ref: channelImportInputRef,
@@ -22533,114 +22851,507 @@
         },
         "Delete playlist"
       ))));
-    }))), channels.length > 0 ? /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-6 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "overflow-x-auto" }, /* @__PURE__ */ import_react.default.createElement("table", { className: "min-w-full text-sm" }, /* @__PURE__ */ import_react.default.createElement("thead", { className: "bg-slate-900/70 text-xs uppercase tracking-wide text-slate-400" }, /* @__PURE__ */ import_react.default.createElement("tr", null, /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "#"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "Channel"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "Stream URL"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "Group"))), /* @__PURE__ */ import_react.default.createElement("tbody", { className: "divide-y divide-white/5 text-slate-200" }, channels.map((c, idx) => /* @__PURE__ */ import_react.default.createElement("tr", { key: `${c.id}-row`, className: "odd:bg-slate-950/40 even:bg-slate-950/60" }, /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle text-slate-400" }, c.chno || idx + 1), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3" }, c.logo ? /* @__PURE__ */ import_react.default.createElement("img", { src: c.logo, alt: "", className: "h-8 w-8 rounded-lg border border-white/10 object-cover" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "flex h-8 w-8 items-center justify-center rounded-lg border border-dashed border-white/10 text-[10px] text-slate-500" }, "No logo"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-medium text-white" }, c.name || "Untitled channel"))), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle" }, c.url ? /* @__PURE__ */ import_react.default.createElement(
-      "a",
-      {
-        href: c.url,
-        target: "_blank",
-        rel: "noreferrer",
-        className: "max-w-[18rem] truncate text-aurora hover:text-aurora/80",
-        title: c.url
-      },
-      c.url
-    ) : /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-500" }, "No stream URL")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle text-slate-400" }, c.group || "\u2014"))))))) : /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-6 rounded-2xl border border-dashed border-white/10 bg-slate-950/40 px-4 py-6 text-sm text-slate-400" }, "No channels yet. Import a playlist or add channels manually below."), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-6 grid gap-4" }, channels.map((c, idx) => /* @__PURE__ */ import_react.default.createElement("div", { key: c.id, className: "grid md:grid-cols-12 gap-3 items-center p-4 rounded-2xl border border-white/10 bg-slate-950/60 shadow-inner shadow-black/20" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `md:col-span-2 ${inputClass}`, placeholder: "Name", value: c.name, onChange: (e) => updateChannel(idx, { name: e.target.value }) }), /* @__PURE__ */ import_react.default.createElement("input", { className: `md:col-span-3 ${inputClass}`, placeholder: "Stream URL", value: c.url, onChange: (e) => updateChannel(idx, { url: e.target.value }) }), /* @__PURE__ */ import_react.default.createElement("input", { className: `md:col-span-3 ${inputClass}`, placeholder: "Logo URL", value: c.logo, onChange: (e) => updateChannel(idx, { logo: e.target.value }) }), /* @__PURE__ */ import_react.default.createElement("input", { className: `md:col-span-2 ${inputClass}`, placeholder: "Group", value: c.group, onChange: (e) => updateChannel(idx, { group: e.target.value }) }), /* @__PURE__ */ import_react.default.createElement("input", { className: `md:col-span-1 ${inputClass}`, placeholder: "#", value: c.chno, onChange: (e) => updateChannel(idx, { chno: e.target.value }) }), /* @__PURE__ */ import_react.default.createElement("button", { className: `md:col-span-1 w-full ${dangerButton}`, onClick: () => removeChannel(idx) }, "Remove"))))), active === "shows" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Import TV Show"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 max-w-3xl" }, "Search TMDB by name to get instant suggestions, or paste a numeric TMDB ID and import directly."), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Search TMDB"), /* @__PURE__ */ import_react.default.createElement(
+    }))), channels.length > 0 ? /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "overflow-x-auto" }, /* @__PURE__ */ import_react.default.createElement("table", { className: "min-w-full text-sm" }, /* @__PURE__ */ import_react.default.createElement("thead", { className: "bg-slate-900/70 text-xs uppercase tracking-wide text-slate-400" }, /* @__PURE__ */ import_react.default.createElement("tr", null, /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left" }, /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
-        className: `${inputClass} mt-2`,
-        placeholder: "e.g. Game of Thrones or 1399",
+        type: "checkbox",
+        checked: selectedChannels.size === channels.filter((ch, idx) => {
+          const searchLower = channelSearchQuery.toLowerCase();
+          const matchesSearch = !searchLower || ch.name?.toLowerCase().includes(searchLower) || ch.url?.toLowerCase().includes(searchLower);
+          const matchesGroup = channelGroupFilter === "all" || (ch.group || "Uncategorized") === channelGroupFilter;
+          return matchesSearch && matchesGroup;
+        }).length && channels.length > 0,
+        onChange: (e) => {
+          if (e.target.checked) {
+            const filtered = channels.map((ch, idx) => {
+              const searchLower = channelSearchQuery.toLowerCase();
+              const matchesSearch = !searchLower || ch.name?.toLowerCase().includes(searchLower) || ch.url?.toLowerCase().includes(searchLower);
+              const matchesGroup = channelGroupFilter === "all" || (ch.group || "Uncategorized") === channelGroupFilter;
+              return matchesSearch && matchesGroup ? idx : null;
+            }).filter((i) => i !== null);
+            setSelectedChannels(new Set(filtered));
+          } else {
+            setSelectedChannels(/* @__PURE__ */ new Set());
+          }
+        },
+        className: "rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+      }
+    )), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "#"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "Channel"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "Stream URL"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-left font-semibold" }, "Group"), /* @__PURE__ */ import_react.default.createElement("th", { className: "px-4 py-3 text-right font-semibold" }, "Actions"))), /* @__PURE__ */ import_react.default.createElement("tbody", { className: "divide-y divide-white/5 text-slate-200" }, channels.map((c, idx) => {
+      const searchLower = channelSearchQuery.toLowerCase();
+      const matchesSearch = !searchLower || c.name?.toLowerCase().includes(searchLower) || c.url?.toLowerCase().includes(searchLower);
+      const matchesGroup = channelGroupFilter === "all" || (c.group || "Uncategorized") === channelGroupFilter;
+      if (!matchesSearch || !matchesGroup) return null;
+      return /* @__PURE__ */ import_react.default.createElement("tr", { key: `${c.id}-row`, className: "hover:bg-slate-900/60 transition-colors" }, /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle" }, /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          type: "checkbox",
+          checked: selectedChannels.has(idx),
+          onChange: (e) => {
+            const newSelected = new Set(selectedChannels);
+            if (e.target.checked) {
+              newSelected.add(idx);
+            } else {
+              newSelected.delete(idx);
+            }
+            setSelectedChannels(newSelected);
+          },
+          className: "rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle text-slate-400" }, c.chno || idx + 1), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3" }, c.logo ? /* @__PURE__ */ import_react.default.createElement("img", { src: c.logo, alt: "", className: "h-10 w-10 rounded-lg border border-white/10 object-cover" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-white/10 text-xs text-slate-500" }, "\u{1F4FA}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-medium text-white" }, c.name || "Untitled channel"))), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle" }, c.url ? /* @__PURE__ */ import_react.default.createElement(
+        "a",
+        {
+          href: c.url,
+          target: "_blank",
+          rel: "noreferrer",
+          className: "max-w-[18rem] truncate text-aurora hover:text-sky-400 flex items-center gap-1",
+          title: c.url
+        },
+        c.url,
+        /* @__PURE__ */ import_react.default.createElement("svg", { className: "w-3 h-3", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24" }, /* @__PURE__ */ import_react.default.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" }))
+      ) : /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-500" }, "No stream URL")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-1 rounded-md text-xs font-medium bg-slate-800/60 text-slate-300" }, c.group || "Uncategorized")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle text-right" }, /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          className: "text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all",
+          onClick: () => removeChannel(idx)
+        },
+        "Remove"
+      )));
+    }))))) : /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-12 text-slate-400" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F4FA}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-lg font-medium mb-2" }, "No channels yet"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm" }, "Import a playlist or add channels manually to get started."))), channels.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, { subtitle: "Edit channel details individually" }, "\u270F\uFE0F Channel Editor"), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, channels.map((c, idx) => {
+      const searchLower = channelSearchQuery.toLowerCase();
+      const matchesSearch = !searchLower || c.name?.toLowerCase().includes(searchLower) || c.url?.toLowerCase().includes(searchLower);
+      const matchesGroup = channelGroupFilter === "all" || (c.group || "Uncategorized") === channelGroupFilter;
+      if (!matchesSearch || !matchesGroup) return null;
+      return /* @__PURE__ */ import_react.default.createElement("div", { key: c.id, className: "grid md:grid-cols-12 gap-3 items-center p-4 rounded-xl bg-slate-800/40 border border-white/5 hover:border-aurora/20 transition-colors" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `md:col-span-2 ${inputClass}`, placeholder: "Name", value: c.name, onChange: (e) => updateChannel(idx, { name: e.target.value }) }), /* @__PURE__ */ import_react.default.createElement("input", { className: `md:col-span-3 ${inputClass}`, placeholder: "Stream URL", value: c.url, onChange: (e) => updateChannel(idx, { url: e.target.value }) }), /* @__PURE__ */ import_react.default.createElement("input", { className: `md:col-span-3 ${inputClass}`, placeholder: "Logo URL", value: c.logo, onChange: (e) => updateChannel(idx, { logo: e.target.value }) }), /* @__PURE__ */ import_react.default.createElement("input", { className: `md:col-span-2 ${inputClass}`, placeholder: "Group", value: c.group, onChange: (e) => updateChannel(idx, { group: e.target.value }) }), /* @__PURE__ */ import_react.default.createElement("input", { className: `md:col-span-1 ${inputClass}`, placeholder: "#", value: c.chno, onChange: (e) => updateChannel(idx, { chno: e.target.value }) }), /* @__PURE__ */ import_react.default.createElement("button", { className: `md:col-span-1 w-full text-xs font-medium px-3 py-2 rounded-lg text-red-300 hover:bg-red-500/20 transition-all`, onClick: () => removeChannel(idx) }, "\u{1F5D1}\uFE0F"));
+    })))), active === "epg" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F4E1} EPG Sources"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 max-w-2xl" }, "Manage Electronic Program Guide sources for channel schedules and metadata")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: primaryButton,
+        onClick: addEpgSource
+      },
+      "\u2795 Add EPG Source"
+    ), selectedEpgSources.size > 0 && /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: dangerButton,
+        onClick: () => {
+          if (window.confirm(`Delete ${selectedEpgSources.size} selected EPG source${selectedEpgSources.size > 1 ? "s" : ""}?`)) {
+            selectedEpgSources.forEach((id) => removeEpgSource(id));
+            setSelectedEpgSources(/* @__PURE__ */ new Set());
+          }
+        }
+      },
+      "\u{1F5D1}\uFE0F Delete (",
+      selectedEpgSources.size,
+      ")"
+    ))), epgSources.length === 0 ? /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16 rounded-xl bg-slate-800/40 border border-dashed border-white/10" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F4E1}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No EPG Sources"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400 mb-6" }, "Add an EPG XML URL to enable program guides for your channels"), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: addEpgSource }, "\u2795 Add First EPG Source")) : /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, epgSources.map((epg) => /* @__PURE__ */ import_react.default.createElement("div", { key: epg.id, className: "rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        type: "checkbox",
+        checked: selectedEpgSources.has(epg.id),
+        onChange: (e) => {
+          const newSelected = new Set(selectedEpgSources);
+          if (e.target.checked) {
+            newSelected.add(epg.id);
+          } else {
+            newSelected.delete(epg.id);
+          }
+          setSelectedEpgSources(newSelected);
+        },
+        className: "mt-1 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+      }
+    ), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-3" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "EPG Name"), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: inputClass,
+        placeholder: "e.g., Main EPG, Backup EPG",
+        value: epg.name,
+        onChange: (e) => updateEpgSource(epg.id, { name: e.target.value })
+      }
+    )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "EPG XML URL"), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: inputClass,
+        placeholder: "https://example.com/epg.xml or http://example.com/xmltv.php",
+        value: epg.url,
+        onChange: (e) => updateEpgSource(epg.id, { url: e.target.value })
+      }
+    ), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500 mt-2 flex items-start gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora" }, "\u{1F4A1}"), /* @__PURE__ */ import_react.default.createElement("span", null, "XMLTV format EPG files. Can be local file:// URLs or HTTP/HTTPS endpoints")))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 items-end" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "text-xs font-semibold text-slate-400" }, "Enabled"), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        type: "checkbox",
+        checked: epg.enabled,
+        onChange: (e) => updateEpgSource(epg.id, { enabled: e.target.checked }),
+        className: "rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+      }
+    )), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: "text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all",
+        onClick: () => {
+          if (window.confirm(`Delete EPG source "${epg.name}"?`)) {
+            removeEpgSource(epg.id);
+          }
+        }
+      },
+      "\u{1F5D1}\uFE0F Remove"
+    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 text-xs text-slate-500" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Created: ", new Date(epg.createdAt).toLocaleDateString()), /* @__PURE__ */ import_react.default.createElement("span", null, "\u2022"), /* @__PURE__ */ import_react.default.createElement("span", { className: epg.enabled ? "text-green-400" : "text-slate-500" }, epg.enabled ? "\u2713 Active" : "\u25CB Disabled"))))))))), epgSources.length > 0 && channels.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F517} Channel EPG Mapping"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, "Map your channels to EPG data for program guide information")), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: primaryButton,
+        onClick: autoMapEpgChannels,
+        disabled: autoMapStatus.active
+      },
+      autoMapStatus.active ? /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("svg", { className: "animate-spin h-5 w-5", viewBox: "0 0 24 24" }, /* @__PURE__ */ import_react.default.createElement("circle", { className: "opacity-25", cx: "12", cy: "12", r: "10", stroke: "currentColor", strokeWidth: "4", fill: "none" }), /* @__PURE__ */ import_react.default.createElement("path", { className: "opacity-75", fill: "currentColor", d: "M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" })), "Mapping...") : /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, "\u2728 Auto-Map Channels")
+    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-3" }, channels.slice(0, 50).map((channel, idx) => {
+      const mapping = epgMappings[channel.id];
+      const mappedSource = mapping ? epgSources.find((s) => s.id === mapping.epgSourceId) : null;
+      return /* @__PURE__ */ import_react.default.createElement("div", { key: channel.id, className: "grid lg:grid-cols-12 gap-3 items-center p-4 rounded-xl bg-slate-800/40 border border-white/5 hover:border-aurora/20 transition-colors" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "lg:col-span-3 flex items-center gap-3" }, channel.logo ? /* @__PURE__ */ import_react.default.createElement("img", { src: channel.logo, alt: "", className: "w-10 h-10 rounded-lg object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-10 h-10 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-xs flex-shrink-0" }, "\u{1F4FA}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-white truncate" }, channel.name), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500 truncate" }, "#", channel.chno || idx + 1))), /* @__PURE__ */ import_react.default.createElement("div", { className: "lg:col-span-3" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "EPG Source"), /* @__PURE__ */ import_react.default.createElement(
+        "select",
+        {
+          className: inputClass,
+          value: mapping?.epgSourceId || "",
+          onChange: (e) => {
+            const sourceId = e.target.value;
+            if (!sourceId) {
+              clearChannelEpgMapping(channel.id);
+            } else {
+              setChannelEpgMapping(channel.id, channel.id, sourceId);
+            }
+          }
+        },
+        /* @__PURE__ */ import_react.default.createElement("option", { value: "" }, "No EPG"),
+        epgSources.filter((s) => s.enabled).map((source) => /* @__PURE__ */ import_react.default.createElement("option", { key: source.id, value: source.id }, source.name))
+      )), /* @__PURE__ */ import_react.default.createElement("div", { className: "lg:col-span-4" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "EPG Channel ID"), /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          className: inputClass,
+          placeholder: "Channel ID from EPG (e.g., bbc.one.uk)",
+          value: mapping?.epgChannelId || "",
+          onChange: (e) => {
+            if (mapping?.epgSourceId) {
+              setChannelEpgMapping(channel.id, e.target.value, mapping.epgSourceId);
+            }
+          },
+          disabled: !mapping?.epgSourceId
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("div", { className: "lg:col-span-2 flex items-end gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: `text-xs px-3 py-2 rounded-lg ${mapping ? "bg-green-500/20 text-green-300" : "bg-slate-700/40 text-slate-500"}` }, mapping ? "\u2713 Mapped" : "\u25CB Not Mapped"), mapping && /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          className: "text-xs font-medium px-2 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all",
+          onClick: () => clearChannelEpgMapping(channel.id)
+        },
+        "\u2715"
+      )));
+    }), channels.length > 50 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-4 text-sm text-slate-500" }, "Showing first 50 of ", channels.length, " channels"))), /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u2139\uFE0F About EPG"), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4 text-sm text-slate-300" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "p-4 rounded-xl bg-slate-800/40 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("h4", { className: "font-semibold text-white mb-2" }, "What is EPG?"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "Electronic Program Guide (EPG) provides TV schedules and program information for your channels. EPG data is typically provided in XMLTV format from your IPTV provider.")), /* @__PURE__ */ import_react.default.createElement("div", { className: "p-4 rounded-xl bg-slate-800/40 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("h4", { className: "font-semibold text-white mb-2" }, "How to use EPG:"), /* @__PURE__ */ import_react.default.createElement("ol", { className: "list-decimal list-inside space-y-2 text-slate-400 ml-2" }, /* @__PURE__ */ import_react.default.createElement("li", null, "Add one or more EPG XML URLs from your IPTV provider"), /* @__PURE__ */ import_react.default.createElement("li", null, "Use Auto-Map to automatically match channels by their tvg-id"), /* @__PURE__ */ import_react.default.createElement("li", null, "Or manually map each channel to its EPG Channel ID"), /* @__PURE__ */ import_react.default.createElement("li", null, "Export your playlist with EPG URLs included in the M3U file"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "p-4 rounded-xl bg-blue-500/10 border border-blue-500/30" }, /* @__PURE__ */ import_react.default.createElement("h4", { className: "font-semibold text-blue-300 mb-2" }, "\u{1F4A1} Tips:"), /* @__PURE__ */ import_react.default.createElement("ul", { className: "list-disc list-inside space-y-1 text-slate-400 ml-2" }, /* @__PURE__ */ import_react.default.createElement("li", null, "EPG sources can be HTTP/HTTPS URLs or local file:// paths"), /* @__PURE__ */ import_react.default.createElement("li", null, "Multiple EPG sources can be used for different channel groups"), /* @__PURE__ */ import_react.default.createElement("li", null, "EPG URLs are added to the M3U header when you export"), /* @__PURE__ */ import_react.default.createElement("li", null, "Most IPTV players will automatically fetch EPG data from these URLs")))))), active === "shows" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(
+      SectionTitle,
+      {
+        subtitle: "Search TMDB by name or import by ID to add series with metadata"
+      },
+      "\u{1F3AC} Add TV Show"
+    ), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-sm font-semibold text-slate-300" }, "Search TMDB"), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: inputClass,
+        placeholder: "e.g., Breaking Bad, Game of Thrones, or TMDB ID like 1399",
         value: showSearchQuery,
         onChange: (e) => setShowSearchQuery(e.target.value)
       }
-    ), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-2 text-xs text-slate-500" }, apiKey ? "Type at least two characters to fetch suggestions." : "Add your TMDB API key above to enable name search.")), /* @__PURE__ */ import_react.default.createElement(
+    ), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500 flex items-start gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora" }, "\u{1F4A1}"), /* @__PURE__ */ import_react.default.createElement("span", null, apiKey ? "Type to search or enter numeric TMDB ID" : "Add your TMDB API key to enable search"))), /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
-        className: `${primaryButton} disabled:opacity-50 disabled:cursor-not-allowed`,
-        disabled: !showSearchQuery.trim(),
+        className: primaryButton,
+        disabled: !showSearchQuery.trim() || !apiKey,
         onClick: async () => {
           const val = showSearchQuery.trim();
           if (!val) return;
           if (!/^\d+$/.test(val)) {
-            alert("Importing by ID expects a numeric TMDB identifier. Pick a suggestion below or paste an ID.");
+            showToast("To import by ID, enter a numeric TMDB identifier. Or select from suggestions below.", "error");
             return;
           }
-          await importShow(val);
-          setShowSearchQuery("");
-          setShowSuggestions([]);
+          try {
+            await importShow(val);
+            setShowSearchQuery("");
+            setShowSuggestions([]);
+            showToast("TV Show imported successfully!", "success");
+          } catch (err) {
+            showToast("Failed to import show: " + err.message, "error");
+          }
         }
       },
-      "Import by ID"
-    )), showSearchBusy && apiKey && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-aurora/80" }, "Searching TMDB\u2026"), apiKey && showSuggestions.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Suggestions"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3" }, showSuggestions.map((sug) => /* @__PURE__ */ import_react.default.createElement("div", { key: sug.id, className: "flex gap-4 rounded-2xl border border-white/10 bg-slate-950/60 p-4" }, sug.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: sug.poster, alt: "", className: "w-16 h-24 rounded-xl object-cover border border-white/10" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-16 h-24 rounded-xl border border-dashed border-white/10 flex items-center justify-center text-[10px] text-slate-500" }, "No art"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-white" }, sug.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-1 flex gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", null, sug.date ? sug.date.slice(0, 4) : "\u2014"), /* @__PURE__ */ import_react.default.createElement("span", null, "TMDB #", sug.id), sug.vote ? /* @__PURE__ */ import_react.default.createElement("span", null, "\u2605 ", sug.vote.toFixed(1)) : null)), /* @__PURE__ */ import_react.default.createElement(
+      showSearchQuery.trim() && /^\d+$/.test(showSearchQuery.trim()) ? "\u{1F4E5} Import by ID" : "\u{1F50D} Search"
+    )), showSearchBusy && apiKey && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 flex items-center gap-3 text-sm text-aurora" }, /* @__PURE__ */ import_react.default.createElement("svg", { className: "animate-spin h-5 w-5", viewBox: "0 0 24 24" }, /* @__PURE__ */ import_react.default.createElement("circle", { className: "opacity-25", cx: "12", cy: "12", r: "10", stroke: "currentColor", strokeWidth: "4", fill: "none" }), /* @__PURE__ */ import_react.default.createElement("path", { className: "opacity-75", fill: "currentColor", d: "M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" })), /* @__PURE__ */ import_react.default.createElement("span", null, "Searching TMDB...")), apiKey && showSuggestions.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-6 space-y-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-white" }, "Search Results"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, showSuggestions.length, " found")), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-4 lg:grid-cols-2" }, showSuggestions.map((sug) => /* @__PURE__ */ import_react.default.createElement("div", { key: sug.id, className: "flex gap-4 rounded-xl border border-white/10 bg-slate-800/40 p-4 hover:border-aurora/30 transition-all" }, sug.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: sug.poster, alt: "", className: "w-20 h-28 rounded-lg object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-20 h-28 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-3xl flex-shrink-0" }, "\u{1F3AC}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 flex flex-col gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white" }, sug.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 flex gap-2 mt-1" }, sug.date && /* @__PURE__ */ import_react.default.createElement("span", null, "\u{1F4C5} ", sug.date.slice(0, 4)), /* @__PURE__ */ import_react.default.createElement("span", null, "ID: ", sug.id), sug.vote ? /* @__PURE__ */ import_react.default.createElement("span", null, "\u2B50 ", sug.vote.toFixed(1)) : null)), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 leading-relaxed line-clamp-2" }, sug.overview || "No description available"), /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
-        className: primaryButton,
+        className: `${primaryButton} mt-auto text-sm py-2`,
         onClick: async () => {
-          await importShow(String(sug.id));
-          setShowSearchQuery("");
-          setShowSuggestions([]);
+          try {
+            await importShow(String(sug.id));
+            setShowSearchQuery("");
+            setShowSuggestions([]);
+            showToast(`"${sug.title}" imported successfully!`, "success");
+          } catch (err) {
+            showToast("Failed to import: " + err.message, "error");
+          }
         }
       },
-      "Add show"
-    )), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-2 text-xs text-slate-400 leading-relaxed line-clamp-3" }, sug.overview)))))))), shows.map((s) => /* @__PURE__ */ import_react.default.createElement(Card, { key: s.id }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-6 md:flex-row md:gap-8" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "w-full md:w-40 lg:w-48" }, s.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: s.poster, alt: "poster", className: "h-full w-full min-h-[12rem] rounded-2xl border border-white/10 object-cover shadow-xl shadow-black/30" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "flex h-full min-h-[12rem] items-center justify-center rounded-2xl border border-dashed border-white/10 text-xs text-slate-500" }, "No poster yet")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-4 lg:grid-cols-12" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4 lg:col-span-7" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Title"), /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} mt-2`, value: s.title, onChange: (e) => setShowPatch(s.id, { title: e.target.value }) })), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Overview"), /* @__PURE__ */ import_react.default.createElement("textarea", { className: `${textareaClass} mt-2`, value: s.overview || "", onChange: (e) => setShowPatch(s.id, { overview: e.target.value }) }))), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4 lg:col-span-5" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Playlist group"), /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} mt-2`, placeholder: "Defaults to TV Shows", value: s.group || "", onChange: (e) => setShowPatch(s.id, { group: e.target.value }) })), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Poster URL"), /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} mt-2`, placeholder: "https://\u2026", value: s.poster || "", onChange: (e) => setShowPatch(s.id, { poster: e.target.value }) })), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "TMDB ID"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 rounded-2xl border border-white/5 bg-slate-950/60 px-4 py-3 text-sm text-slate-400" }, s.tmdbId)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid items-start gap-4 lg:grid-cols-12" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-2 lg:col-span-7" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Episode URL pattern"), /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} mt-2`, placeholder: "e.g. https://cdn/show/S{s2}E{e2}.m3u8", value: s.pattern || "", onChange: (e) => setShowPatch(s.id, { pattern: e.target.value }) }), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500" }, "Use tokens like ", "{s2}", " or ", "{e2}", " to auto-build episode links.")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap justify-end gap-3 lg:col-span-5" }, /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => {
-      const inputs = [
-        document.getElementById(`samp1-${s.id}`)?.value,
-        document.getElementById(`samp2-${s.id}`)?.value,
-        document.getElementById(`samp3-${s.id}`)?.value
-      ].map((v) => v?.trim()).filter(Boolean);
-      if (inputs.length < 2) {
-        alert("Add at least two sample episode URLs in the helper section to guess a pattern.");
-        return;
-      }
-      guessPattern(s.id, inputs);
-    } }, "Guess pattern"), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => fillShowUrls(s.id) }, "Fill missing URLs"), /* @__PURE__ */ import_react.default.createElement("button", { className: dangerButton, onClick: () => setShows((ss) => ss.filter((x) => x.id !== s.id)) }, "Remove show"))), /* @__PURE__ */ import_react.default.createElement("details", { className: "overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50" }, /* @__PURE__ */ import_react.default.createElement("summary", { className: "cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-200 hover:text-white" }, "Sample URLs helper"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3 px-4 pb-4 sm:grid-cols-2 lg:grid-cols-3" }, /* @__PURE__ */ import_react.default.createElement("input", { id: `samp1-${s.id}`, className: inputClass, placeholder: "Sample URL 1" }), /* @__PURE__ */ import_react.default.createElement("input", { id: `samp2-${s.id}`, className: inputClass, placeholder: "Sample URL 2" }), /* @__PURE__ */ import_react.default.createElement("input", { id: `samp3-${s.id}`, className: inputClass, placeholder: "Sample URL 3 (optional)" }), /* @__PURE__ */ import_react.default.createElement("p", { className: "sm:col-span-2 lg:col-span-3 text-xs text-slate-500" }, "Provide streams from consecutive episodes so we can recognise the pattern."))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "px-3 py-1 rounded-full bg-aurora/20 text-aurora text-xs font-semibold" }, (s.seasons || []).length, " Seasons"), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xs text-slate-400" }, "Episodes: ", (s.seasons || []).reduce((acc, sea) => acc + (sea.episodes?.length || 0), 0))), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, s.seasons.sort((a, b) => a.season - b.season).map((sea) => /* @__PURE__ */ import_react.default.createElement("details", { key: sea.season, className: "overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50" }, /* @__PURE__ */ import_react.default.createElement("summary", { className: "cursor-pointer select-none font-medium px-4 py-3 text-slate-200 text-sm hover:text-white" }, "Season ", sea.season, " \xB7 ", sea.episodes.length, " episodes"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 grid gap-3 px-4 pb-4" }, sea.episodes.sort((a, b) => a.episode - b.episode).map((ep) => /* @__PURE__ */ import_react.default.createElement("div", { key: ep.episode, className: "grid md:grid-cols-12 gap-3 items-center rounded-2xl border border-white/10 bg-slate-950/60 p-3 shadow-inner shadow-black/20" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "md:col-span-2 text-sm font-medium text-slate-200" }, "E", pad(ep.episode), " ", ep.title || "Episode"), /* @__PURE__ */ import_react.default.createElement("input", { className: `md:col-span-8 ${inputClass}`, placeholder: "Stream URL", value: ep.url || "", onChange: (e) => {
-      setShows((ss) => ss.map((sss) => {
-        if (sss.id !== s.id) return sss;
-        return { ...sss, seasons: sss.seasons.map((x) => x.season === sea.season ? { ...x, episodes: x.episodes.map((y) => y.episode === ep.episode ? { ...y, url: e.target.value } : y) } : x) };
-      }));
-    } }), /* @__PURE__ */ import_react.default.createElement("button", { className: `md:col-span-2 w-full ${ghostButton}`, onClick: () => {
-      setShows((ss) => ss.map((sss) => {
-        if (sss.id !== s.id) return sss;
-        const url = sss.pattern ? fillPattern(sss.pattern, sea.season, ep.episode) : ep.url || "";
-        return { ...sss, seasons: sss.seasons.map((x) => x.season === sea.season ? { ...x, episodes: x.episodes.map((y) => y.episode === ep.episode ? { ...y, url } : y) } : x) };
-      }));
-    } }, "Derive")))))))))))), active === "movies" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Import Movie"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 max-w-3xl" }, "Find films by name or paste a TMDB ID. Suggestions help you grab the right entry without leaving the builder."), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Search TMDB"), /* @__PURE__ */ import_react.default.createElement(
+      "\u2795 Add Show"
+    ))))))), shows.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F4FA} Your TV Shows"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, shows.length, " series in your library")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
-        className: `${inputClass} mt-2`,
-        placeholder: "e.g. Fight Club or 550",
+        type: "text",
+        className: `${inputClass} w-64`,
+        placeholder: "Search shows...",
+        value: showSearchFilter,
+        onChange: (e) => setShowSearchFilter(e.target.value)
+      }
+    ), selectedShows.size > 0 && /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: dangerButton,
+        onClick: () => {
+          if (window.confirm(`Delete ${selectedShows.size} selected show${selectedShows.size > 1 ? "s" : ""}?`)) {
+            setShows((ss) => ss.filter((s) => !selectedShows.has(s.id)));
+            setSelectedShows(/* @__PURE__ */ new Set());
+          }
+        }
+      },
+      "\u{1F5D1}\uFE0F Delete (",
+      selectedShows.size,
+      ")"
+    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, shows.filter((s) => {
+      if (!showSearchFilter.trim()) return true;
+      const search = showSearchFilter.toLowerCase();
+      return s.title?.toLowerCase().includes(search);
+    }).map((show) => {
+      const totalEpisodes = show.seasons?.reduce((sum, season) => sum + (season.episodes?.length || 0), 0) || 0;
+      const episodesWithUrls = show.seasons?.reduce((sum, season) => sum + (season.episodes?.filter((ep) => ep.url).length || 0), 0) || 0;
+      return /* @__PURE__ */ import_react.default.createElement("div", { key: show.id, className: "rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          type: "checkbox",
+          checked: selectedShows.has(show.id),
+          onChange: (e) => {
+            const newSelected = new Set(selectedShows);
+            if (e.target.checked) {
+              newSelected.add(show.id);
+            } else {
+              newSelected.delete(show.id);
+            }
+            setSelectedShows(newSelected);
+          },
+          className: "mt-1 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+        }
+      ), show.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: show.poster, alt: "", className: "w-16 h-24 rounded-lg object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-16 h-24 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-2xl flex-shrink-0" }, "\u{1F3AC}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-3" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-lg font-bold text-white" }, show.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-1 flex gap-3" }, /* @__PURE__ */ import_react.default.createElement("span", null, "TMDB #", show.tmdbId), /* @__PURE__ */ import_react.default.createElement("span", null, "\u{1F4FA} ", show.seasons?.length || 0, " season", show.seasons?.length !== 1 ? "s" : ""), /* @__PURE__ */ import_react.default.createElement("span", null, "\u{1F3AC} ", totalEpisodes, " episode", totalEpisodes !== 1 ? "s" : ""), /* @__PURE__ */ import_react.default.createElement("span", { className: episodesWithUrls === totalEpisodes ? "text-green-400" : "text-yellow-400" }, "\u{1F517} ", episodesWithUrls, "/", totalEpisodes, " linked"))), /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          className: "text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0",
+          onClick: () => {
+            if (window.confirm(`Delete "${show.title}"?`)) {
+              setShows((ss) => ss.filter((s) => s.id !== show.id));
+            }
+          }
+        },
+        "\u{1F5D1}\uFE0F Remove"
+      )), show.overview && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-2 line-clamp-2" }, show.overview)), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-3 items-center" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "text-xs text-slate-400 font-semibold" }, "Group:"), /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          className: `${inputClass} flex-1 max-w-xs py-2 text-sm`,
+          placeholder: "e.g., TV Shows, Series, etc.",
+          value: show.group || "",
+          onChange: (e) => setShowPatch(show.id, { group: e.target.value })
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("details", { className: "group" }, /* @__PURE__ */ import_react.default.createElement("summary", { className: "cursor-pointer text-sm font-semibold text-aurora hover:text-sky-400 flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u2699\uFE0F Configure Episode URLs"), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xs text-slate-500" }, "(", show.pattern ? "Pattern set" : "Not configured", ")")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-3 p-4 rounded-lg bg-slate-900/60 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "URL Pattern"), /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          className: inputClass,
+          placeholder: "e.g., https://cdn.example.com/show/{season}/{episode}.mp4",
+          value: show.pattern || "",
+          onChange: (e) => setShowPatch(show.id, { pattern: e.target.value })
+        }
+      ), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500 mt-2" }, "Use tokens: ", "{season}", ", ", "{episode}", ", ", "{s2}", ", ", "{e2}", " (zero-padded)")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          className: secondaryButton,
+          onClick: () => {
+            const samples = prompt("Paste 2-3 sample URLs (one per line):");
+            if (samples) {
+              guessPattern(show.id, samples.split("\n"));
+            }
+          }
+        },
+        "\u{1F52E} Auto-detect Pattern"
+      ), /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          className: primaryButton,
+          onClick: () => {
+            if (show.pattern) {
+              fillShowUrls(show.id);
+              showToast("Episode URLs generated from pattern!", "success");
+            } else {
+              showToast("Please set a URL pattern first", "error");
+            }
+          }
+        },
+        "\u2728 Generate URLs"
+      )))), /* @__PURE__ */ import_react.default.createElement("details", null, /* @__PURE__ */ import_react.default.createElement("summary", { className: "cursor-pointer text-sm font-semibold text-slate-300 hover:text-white flex items-center gap-2" }, "\u{1F4CB} View Seasons & Episodes"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 space-y-2 max-h-60 overflow-y-auto" }, show.seasons?.map((season) => /* @__PURE__ */ import_react.default.createElement("div", { key: season.season, className: "text-xs bg-slate-900/40 rounded-lg p-3 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white mb-1" }, "Season ", season.season, " - ", season.episodes?.length || 0, " episodes"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-slate-400 space-y-1" }, season.episodes?.slice(0, 5).map((ep) => /* @__PURE__ */ import_react.default.createElement("div", { key: ep.episode, className: "flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: ep.url ? "text-green-400" : "text-slate-500" }, ep.url ? "\u2713" : "\u25CB"), /* @__PURE__ */ import_react.default.createElement("span", null, "E", String(ep.episode).padStart(2, "0"), ": ", ep.title))), season.episodes && season.episodes.length > 5 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-slate-500 italic" }, "...and ", season.episodes.length - 5, " more")))))))));
+    }))), shows.length === 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F3AC}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No TV Shows Yet"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "Search and add your first TV series to get started")))), active === "movies" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(
+      SectionTitle,
+      {
+        subtitle: "Search TMDB by name or import by ID to add movies with metadata"
+      },
+      "\u{1F3A5} Add Movie"
+    ), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-sm font-semibold text-slate-300" }, "Search TMDB"), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: inputClass,
+        placeholder: "e.g., Inception, The Matrix, or TMDB ID like 550",
         value: movieSearchQuery,
         onChange: (e) => setMovieSearchQuery(e.target.value)
       }
-    ), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-2 text-xs text-slate-500" }, apiKey ? "Suggestions appear after typing two characters." : "Add your TMDB API key above to enable name search.")), /* @__PURE__ */ import_react.default.createElement(
+    ), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500 flex items-start gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora" }, "\u{1F4A1}"), /* @__PURE__ */ import_react.default.createElement("span", null, apiKey ? "Type to search or enter numeric TMDB ID" : "Add your TMDB API key to enable search"))), /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
-        className: `${primaryButton} disabled:opacity-50 disabled:cursor-not-allowed`,
-        disabled: !movieSearchQuery.trim(),
+        className: primaryButton,
+        disabled: !movieSearchQuery.trim() || !apiKey,
         onClick: async () => {
           const val = movieSearchQuery.trim();
           if (!val) return;
           if (!/^\d+$/.test(val)) {
-            alert("Importing by ID expects a numeric TMDB identifier. Pick a suggestion below or paste an ID.");
+            showToast("To import by ID, enter a numeric TMDB identifier. Or select from suggestions below.", "error");
             return;
           }
-          await importMovie(val);
-          setMovieSearchQuery("");
-          setMovieSuggestions([]);
+          try {
+            await importMovie(val);
+            setMovieSearchQuery("");
+            setMovieSuggestions([]);
+            showToast("Movie imported successfully!", "success");
+          } catch (err) {
+            showToast("Failed to import movie: " + err.message, "error");
+          }
         }
       },
-      "Import by ID"
-    )), movieSearchBusy && apiKey && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-aurora/80" }, "Searching TMDB\u2026"), apiKey && movieSuggestions.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Suggestions"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3" }, movieSuggestions.map((sug) => /* @__PURE__ */ import_react.default.createElement("div", { key: sug.id, className: "flex gap-4 rounded-2xl border border-white/10 bg-slate-950/60 p-4" }, sug.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: sug.poster, alt: "", className: "w-16 h-24 rounded-xl object-cover border border-white/10" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-16 h-24 rounded-xl border border-dashed border-white/10 flex items-center justify-center text-[10px] text-slate-500" }, "No art"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-white" }, sug.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-1 flex gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", null, sug.date ? sug.date.slice(0, 4) : "\u2014"), /* @__PURE__ */ import_react.default.createElement("span", null, "TMDB #", sug.id), sug.vote ? /* @__PURE__ */ import_react.default.createElement("span", null, "\u2605 ", sug.vote.toFixed(1)) : null)), /* @__PURE__ */ import_react.default.createElement(
+      movieSearchQuery.trim() && /^\d+$/.test(movieSearchQuery.trim()) ? "\u{1F4E5} Import by ID" : "\u{1F50D} Search"
+    )), movieSearchBusy && apiKey && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 flex items-center gap-3 text-sm text-aurora" }, /* @__PURE__ */ import_react.default.createElement("svg", { className: "animate-spin h-5 w-5", viewBox: "0 0 24 24" }, /* @__PURE__ */ import_react.default.createElement("circle", { className: "opacity-25", cx: "12", cy: "12", r: "10", stroke: "currentColor", strokeWidth: "4", fill: "none" }), /* @__PURE__ */ import_react.default.createElement("path", { className: "opacity-75", fill: "currentColor", d: "M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" })), /* @__PURE__ */ import_react.default.createElement("span", null, "Searching TMDB...")), apiKey && movieSuggestions.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-6 space-y-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-white" }, "Search Results"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, movieSuggestions.length, " found")), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-4 lg:grid-cols-2" }, movieSuggestions.map((sug) => /* @__PURE__ */ import_react.default.createElement("div", { key: sug.id, className: "flex gap-4 rounded-xl border border-white/10 bg-slate-800/40 p-4 hover:border-aurora/30 transition-all" }, sug.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: sug.poster, alt: "", className: "w-20 h-28 rounded-lg object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-20 h-28 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-3xl flex-shrink-0" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 flex flex-col gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white" }, sug.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 flex gap-2 mt-1" }, sug.date && /* @__PURE__ */ import_react.default.createElement("span", null, "\u{1F4C5} ", sug.date.slice(0, 4)), /* @__PURE__ */ import_react.default.createElement("span", null, "ID: ", sug.id), sug.vote ? /* @__PURE__ */ import_react.default.createElement("span", null, "\u2B50 ", sug.vote.toFixed(1)) : null)), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 leading-relaxed line-clamp-2" }, sug.overview || "No description available"), /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
-        className: primaryButton,
+        className: `${primaryButton} mt-auto text-sm py-2`,
         onClick: async () => {
-          await importMovie(String(sug.id));
-          setMovieSearchQuery("");
-          setMovieSuggestions([]);
+          try {
+            await importMovie(String(sug.id));
+            setMovieSearchQuery("");
+            setMovieSuggestions([]);
+            showToast(`"${sug.title}" imported successfully!`, "success");
+          } catch (err) {
+            showToast("Failed to import: " + err.message, "error");
+          }
         }
       },
-      "Add movie"
-    )), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-2 text-xs text-slate-400 leading-relaxed line-clamp-3" }, sug.overview)))))))), movies.map((m) => /* @__PURE__ */ import_react.default.createElement(Card, { key: m.id }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-6 md:flex-row md:gap-8" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "w-full md:w-40 lg:w-48" }, m.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: m.poster, alt: "poster", className: "h-full w-full min-h-[12rem] rounded-2xl border border-white/10 object-cover shadow-xl shadow-black/30" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "flex h-full min-h-[12rem] items-center justify-center rounded-2xl border border-dashed border-white/10 text-xs text-slate-500" }, "No poster yet")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-4 lg:grid-cols-12" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4 lg:col-span-7" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Title"), /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} mt-2`, value: m.title, onChange: (e) => setMoviePatch(m.id, { title: e.target.value }) })), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Overview"), /* @__PURE__ */ import_react.default.createElement("textarea", { className: `${textareaClass} mt-2`, value: m.overview || "", onChange: (e) => setMoviePatch(m.id, { overview: e.target.value }) }))), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4 lg:col-span-5" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Playlist group"), /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} mt-2`, placeholder: "Defaults to Movies", value: m.group || "", onChange: (e) => setMoviePatch(m.id, { group: e.target.value }) })), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Poster URL"), /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} mt-2`, placeholder: "https://\u2026", value: m.poster || "", onChange: (e) => setMoviePatch(m.id, { poster: e.target.value }) })), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "TMDB ID"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 rounded-2xl border border-white/5 bg-slate-950/60 px-4 py-3 text-sm text-slate-400" }, m.tmdbId)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-3 md:flex-row md:items-end md:justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "md:flex-1" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Stream URL"), /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} mt-2`, placeholder: "https://your-cdn/movie-title/stream.m3u8", value: m.url || "", onChange: (e) => setMoviePatch(m.id, { url: e.target.value }) })), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-3 md:w-auto" }, /* @__PURE__ */ import_react.default.createElement("button", { className: `${dangerButton} w-full md:w-auto`, onClick: () => setMovies((ms) => ms.filter((x) => x.id !== m.id)) }, "Remove movie")))))))), active === "playlist" && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Playlist Preview (.m3u)"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-3" }, /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: () => downloadText("playlist.m3u", m3u) }, "Download .m3u"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => navigator.clipboard.writeText(m3u) }, "Copy"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted playlist URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: playlistUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(playlistUrl) }, "Copy URL")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, playlistSyncStatus === "syncing" && "Uploading latest playlist\u2026", playlistSyncStatus === "saved" && "Playlist synced. Use this URL in any IPTV player.", playlistSyncStatus === "error" && "Sync failed \u2014 the download button still gives you a local file.", playlistSyncStatus === "idle" && "Playlist ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("textarea", { className: `${inputClass} h-96 font-mono text-sm`, value: m3u, onChange: () => {
-    } }), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 mt-3" }, "Entries use #EXTINF with tvg-id, tvg-logo, group-title, and tvg-chno when provided."))), /* @__PURE__ */ import_react.default.createElement("footer", { className: "py-12 text-center text-xs text-slate-500/80" }, "Built with \u2764\uFE0F \u2013 Local-only demo. Add auth & backend before shipping."));
+      "\u2795 Add Movie"
+    ))))))), movies.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F3AC} Your Movies"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, movies.length, " films in your library")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        type: "text",
+        className: `${inputClass} w-64`,
+        placeholder: "Search movies...",
+        value: movieSearchFilter,
+        onChange: (e) => setMovieSearchFilter(e.target.value)
+      }
+    ), selectedMovies.size > 0 && /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: dangerButton,
+        onClick: () => {
+          if (window.confirm(`Delete ${selectedMovies.size} selected movie${selectedMovies.size > 1 ? "s" : ""}?`)) {
+            setMovies((ms) => ms.filter((m) => !selectedMovies.has(m.id)));
+            setSelectedMovies(/* @__PURE__ */ new Set());
+          }
+        }
+      },
+      "\u{1F5D1}\uFE0F Delete (",
+      selectedMovies.size,
+      ")"
+    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, movies.filter((m) => {
+      if (!movieSearchFilter.trim()) return true;
+      const search = movieSearchFilter.toLowerCase();
+      return m.title?.toLowerCase().includes(search);
+    }).map((movie) => /* @__PURE__ */ import_react.default.createElement("div", { key: movie.id, className: "rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        type: "checkbox",
+        checked: selectedMovies.has(movie.id),
+        onChange: (e) => {
+          const newSelected = new Set(selectedMovies);
+          if (e.target.checked) {
+            newSelected.add(movie.id);
+          } else {
+            newSelected.delete(movie.id);
+          }
+          setSelectedMovies(newSelected);
+        },
+        className: "mt-1 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+      }
+    ), movie.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: movie.poster, alt: "", className: "w-16 h-24 rounded-lg object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-16 h-24 rounded-lg border border-dashed border-white/10 flex items-center justify-center text-2xl flex-shrink-0" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-3" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-lg font-bold text-white" }, movie.title), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-1 flex gap-3" }, /* @__PURE__ */ import_react.default.createElement("span", null, "TMDB #", movie.tmdbId), /* @__PURE__ */ import_react.default.createElement("span", { className: movie.url ? "text-green-400" : "text-yellow-400" }, movie.url ? "\u{1F517} URL set" : "\u26A0\uFE0F No URL"))), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: "text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0",
+        onClick: () => {
+          if (window.confirm(`Delete "${movie.title}"?`)) {
+            setMovies((ms) => ms.filter((m) => m.id !== movie.id));
+          }
+        }
+      },
+      "\u{1F5D1}\uFE0F Remove"
+    )), movie.overview && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-2 line-clamp-2" }, movie.overview)), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "Stream URL"), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: inputClass,
+        placeholder: "https://cdn.example.com/movies/movie.mp4",
+        value: movie.url || "",
+        onChange: (e) => setMoviePatch(movie.id, { url: e.target.value })
+      }
+    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-3 items-center" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "text-xs text-slate-400 font-semibold" }, "Group:"), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: `${inputClass} flex-1 max-w-xs py-2 text-sm`,
+        placeholder: "e.g., Movies, Films, VOD",
+        value: movie.group || "",
+        onChange: (e) => setMoviePatch(movie.id, { group: e.target.value })
+      }
+    )), /* @__PURE__ */ import_react.default.createElement("details", null, /* @__PURE__ */ import_react.default.createElement("summary", { className: "cursor-pointer text-sm font-semibold text-slate-300 hover:text-white flex items-center gap-2" }, "\u2699\uFE0F Advanced Settings"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 space-y-3 p-4 rounded-lg bg-slate-900/60 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "Poster URL"), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: inputClass,
+        placeholder: "https://image.tmdb.org/t/p/w342/...",
+        value: movie.poster || "",
+        onChange: (e) => setMoviePatch(movie.id, { poster: e.target.value })
+      }
+    )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "Overview/Description"), /* @__PURE__ */ import_react.default.createElement(
+      "textarea",
+      {
+        className: textareaClass,
+        placeholder: "Movie description...",
+        value: movie.overview || "",
+        onChange: (e) => setMoviePatch(movie.id, { overview: e.target.value })
+      }
+    )))))))))), movies.length === 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No Movies Yet"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "Search and add your first movie to get started")))), active === "playlist" && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Playlist Preview (.m3u)"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-3" }, /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: () => downloadText("playlist.m3u", m3u) }, "Download .m3u"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => navigator.clipboard.writeText(m3u) }, "Copy"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted playlist URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: playlistUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(playlistUrl) }, "Copy URL")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, playlistSyncStatus === "syncing" && "Uploading latest playlist\u2026", playlistSyncStatus === "saved" && "Playlist synced. Use this URL in any IPTV player.", playlistSyncStatus === "error" && "Sync failed \u2014 the download button still gives you a local file.", playlistSyncStatus === "idle" && "Playlist ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("textarea", { className: `${inputClass} h-96 font-mono text-sm`, value: m3u, onChange: () => {
+    } }), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 mt-3" }, "Entries use #EXTINF with tvg-id, tvg-logo, group-title, and tvg-chno when provided."))), /* @__PURE__ */ import_react.default.createElement("footer", { className: "py-12 text-center text-xs text-slate-500/80" }, "Built with \u2764\uFE0F \u2013 Local-only demo. Add auth & backend before shipping."), /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed bottom-6 right-6 z-50 space-y-3 max-w-md" }, toasts.map((toast) => /* @__PURE__ */ import_react.default.createElement(
+      "div",
+      {
+        key: toast.id,
+        className: `flex items-start gap-3 p-4 rounded-xl shadow-2xl backdrop-blur-xl border transform transition-all duration-300 animate-slide-in ${toast.type === "success" ? "bg-green-500/20 border-green-500/40 text-green-100" : toast.type === "error" ? "bg-red-500/20 border-red-500/40 text-red-100" : "bg-aurora/20 border-aurora/40 text-white"}`
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "text-2xl flex-shrink-0" }, toast.type === "success" ? "\u2705" : toast.type === "error" ? "\u274C" : "\u2139\uFE0F"),
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 text-sm font-medium leading-relaxed" }, toast.message),
+      /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          onClick: () => setToasts((prev) => prev.filter((t) => t.id !== toast.id)),
+          className: "text-white/60 hover:text-white transition-colors flex-shrink-0"
+        },
+        "\u2715"
+      )
+    ))));
   }
 
   // main.jsx
@@ -22649,7 +23360,9 @@
     throw new Error("Root element with id 'root' not found");
   }
   var root = (0, import_client.createRoot)(rootElement);
-  root.render(/* @__PURE__ */ import_react2.default.createElement(App, null));
+  root.render(
+    /* @__PURE__ */ import_react2.default.createElement(ErrorBoundary, null, /* @__PURE__ */ import_react2.default.createElement(App, null))
+  );
 })();
 /*! Bundled license information:
 

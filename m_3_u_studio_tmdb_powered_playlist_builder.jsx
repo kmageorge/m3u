@@ -568,11 +568,70 @@ const SectionTitle = ({ children, subtitle, badge }) => (
   </div>
 );
 
+// ---------- Error Boundary ----------
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("Error caught by boundary:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-midnight via-slate-900 to-midnight flex items-center justify-center p-6">
+          <div className="max-w-2xl w-full bg-slate-800/60 backdrop-blur-xl rounded-2xl border border-red-500/40 p-8 text-center">
+            <div className="text-6xl mb-6">💥</div>
+            <h1 className="text-3xl font-bold text-white mb-4">Oops! Something went wrong</h1>
+            <p className="text-slate-300 mb-6">
+              The application encountered an unexpected error. Your data is safe in browser storage.
+            </p>
+            <div className="bg-slate-900/60 rounded-xl p-4 mb-6 text-left">
+              <p className="text-xs font-mono text-red-300">
+                {this.state.error?.toString()}
+              </p>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-6 py-3 rounded-xl bg-aurora text-midnight font-semibold hover:bg-sky-400 transition-all shadow-lg"
+            >
+              🔄 Reload Application
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 // ---------- Main App ----------
 export default function App() {
   const [apiKey, setApiKey] = useState(readLS("tmdb_api_key", ""));
   const freekeyFetchAttempted = useRef(false);
   const [active, setActive] = useState("dashboard");
+  
+  // Toast notification state
+  const [toasts, setToasts] = useState([]);
+  const toastIdCounter = useRef(0);
+  
+  // Toast helper function
+  const showToast = useCallback((message, type = "info") => {
+    const id = toastIdCounter.current++;
+    const toast = { id, message, type };
+    setToasts(prev => [...prev, toast]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 5000);
+  }, []);
   
   // Search and filter states
   const [channelSearchQuery, setChannelSearchQuery] = useState("");
@@ -902,7 +961,7 @@ export default function App() {
 
   const fetchLibraryCatalog = async () => {
     const url = libraryUrl.trim();
-    if (!url) return alert("Enter a base URL to crawl.");
+    if (!url) return showToast("Enter a base URL to crawl.", "error");
     setLibraryLoading(true);
     setLibraryError("");
     setLibraryMovies([]);
@@ -966,7 +1025,7 @@ export default function App() {
   };
 
   const matchLibraryMovie = async (movie) => {
-    if (!apiKey) return alert("Add your TMDB API key first");
+    if (!apiKey) return showToast("Add your TMDB API key first", "error");
     updateLibraryMovie(movie.key, m => ({ ...m, loading: true, error: "" }));
     try {
       const results = await searchTMDBMovies(apiKey, movie.title);
@@ -977,7 +1036,7 @@ export default function App() {
   };
 
   const matchLibraryShow = async (show) => {
-    if (!apiKey) return alert("Add your TMDB API key first");
+    if (!apiKey) return showToast("Add your TMDB API key first", "error");
     updateLibraryShow(show.key, s => ({ ...s, loading: true, error: "" }));
     try {
       const results = await searchTMDBShows(apiKey, show.title);
@@ -990,7 +1049,7 @@ export default function App() {
   const addMovieFromSuggestion = async (movie, suggestion) => {
     await importMovie(String(suggestion.id), { url: movie.entries[0]?.url || "", group: "Movies" });
     setLibraryMovies(ms => ms.filter(m => m.key !== movie.key));
-    alert(`Imported "${suggestion.title}" with stream URL attached.`);
+    showToast(`Imported "${suggestion.title}" with stream URL attached.`, "success");
   };
 
   const addShowFromSuggestion = async (show, suggestion) => {
@@ -1001,7 +1060,7 @@ export default function App() {
     });
     await importShow(String(suggestion.id), { episodeMap, group: "TV Shows" });
     setLibraryShows(ms => ms.filter(s => s.key !== show.key));
-    alert(`Imported "${suggestion.title}" with ${Object.keys(episodeMap).length} episodes linked.`);
+    showToast(`Imported "${suggestion.title}" with ${Object.keys(episodeMap).length} episodes linked.`, "success");
   };
 
   // ----- Channels -----
@@ -1076,7 +1135,7 @@ export default function App() {
 
   const autoMapEpgChannels = async () => {
     if (epgSources.length === 0) {
-      alert("Please add at least one EPG source first");
+      showToast("Please add at least one EPG source first", "error");
       return;
     }
     
@@ -1100,12 +1159,12 @@ export default function App() {
     });
 
     setAutoMapStatus({ active: false, matched, total: channels.length });
-    alert(`Auto-mapping complete!\n${matched} of ${channels.length} channels mapped.`);
+    showToast(`Auto-mapping complete! ${matched} of ${channels.length} channels mapped.`, "success");
   };
 
   // ----- TV Shows -----
   const importShow = async (tmdbId, options = {}) => {
-    if (!apiKey) return alert("Add your TMDB API key first");
+    if (!apiKey) return showToast("Add your TMDB API key first", "error");
     const s = await fetchTMDBShow(apiKey, tmdbId);
     const episodeMap = options.episodeMap || {};
     const customGroup = options.group;
@@ -1139,7 +1198,7 @@ export default function App() {
   const guessPattern = (id, samples) => {
     const { pattern, notes } = inferPattern(samples);
     setShowPatch(id, { pattern });
-    if (notes) alert(notes + "\nPattern: " + pattern);
+    if (notes) showToast(notes + "\nPattern: " + pattern, "info");
   };
 
   const fillShowUrls = (id) => {
@@ -1155,7 +1214,7 @@ export default function App() {
 
   // ----- Movies -----
   const importMovie = async (tmdbId, options = {}) => {
-    if (!apiKey) return alert("Add your TMDB API key first");
+    if (!apiKey) return showToast("Add your TMDB API key first", "error");
     const m = await fetchTMDBMovie(apiKey, tmdbId);
     setMovies(prev => [
       ...prev,
@@ -1171,6 +1230,56 @@ export default function App() {
     ]);
   };
   const setMoviePatch = (id, patch) => setMovies(ms => ms.map(m => m.id === id ? { ...m, ...patch } : m));
+
+  // ----- Backup/Restore -----
+  const exportBackup = () => {
+    const backup = {
+      version: "1.0.0",
+      timestamp: new Date().toISOString(),
+      data: {
+        apiKey,
+        channels,
+        channelImports,
+        shows,
+        movies,
+        epgSources,
+        epgMappings
+      }
+    };
+    const json = JSON.stringify(backup, null, 2);
+    downloadText(`m3u-studio-backup-${Date.now()}.json`, json);
+    showToast("Backup exported successfully!", "success");
+  };
+
+  const importBackup = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    event.target.value = "";
+    
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+      
+      if (!backup.version || !backup.data) {
+        showToast("Invalid backup file format", "error");
+        return;
+      }
+      
+      if (window.confirm("This will replace all current data. Continue?")) {
+        const { data } = backup;
+        if (data.apiKey) setApiKey(data.apiKey);
+        if (data.channels) setChannels(data.channels);
+        if (data.channelImports) setChannelImports(data.channelImports);
+        if (data.shows) setShows(data.shows);
+        if (data.movies) setMovies(data.movies);
+        if (data.epgSources) setEpgSources(data.epgSources);
+        if (data.epgMappings) setEpgMappings(data.epgMappings);
+        showToast("Backup restored successfully!", "success");
+      }
+    } catch (err) {
+      showToast("Failed to restore backup: " + err.message, "error");
+    }
+  };
 
   return (
     <div className="min-h-screen text-slate-100 pb-16">
@@ -1420,12 +1529,41 @@ export default function App() {
                 </button>
 
                 <button
+                  onClick={exportBackup}
+                  className="flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-green-500/40 hover:bg-slate-800/80 transition-all text-left group"
+                >
+                  <div className="text-3xl">💾</div>
+                  <div>
+                    <div className="font-semibold text-white group-hover:text-green-400 transition-colors">Export Backup</div>
+                    <div className="text-sm text-slate-400 mt-1">Download all your data as JSON</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => document.getElementById("backup-import-input")?.click()}
+                  className="flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-blue-500/40 hover:bg-slate-800/80 transition-all text-left group"
+                >
+                  <div className="text-3xl">📥</div>
+                  <div>
+                    <div className="font-semibold text-white group-hover:text-blue-400 transition-colors">Import Backup</div>
+                    <div className="text-sm text-slate-400 mt-1">Restore from a backup file</div>
+                  </div>
+                </button>
+                <input
+                  id="backup-import-input"
+                  type="file"
+                  accept=".json"
+                  onChange={importBackup}
+                  className="hidden"
+                />
+
+                <button
                   onClick={() => {
                     if (apiKey) {
                       navigator.clipboard.writeText(apiKey);
-                      alert("API key copied to clipboard!");
+                      showToast("API key copied to clipboard!", "success");
                     } else {
-                      alert("Please add your TMDB API key first");
+                      showToast("Please add your TMDB API key first", "error");
                     }
                   }}
                   className="flex items-start gap-4 p-5 rounded-xl bg-gradient-to-br from-slate-800/60 to-slate-800/30 border border-white/10 hover:border-aurora/40 hover:bg-slate-800/80 transition-all text-left group"
@@ -2336,16 +2474,16 @@ export default function App() {
                     const val = showSearchQuery.trim();
                     if (!val) return;
                     if (!/^\d+$/.test(val)) {
-                      alert("To import by ID, enter a numeric TMDB identifier. Or select from suggestions below.");
+                      showToast("To import by ID, enter a numeric TMDB identifier. Or select from suggestions below.", "error");
                       return;
                     }
                     try {
                       await importShow(val);
                       setShowSearchQuery("");
                       setShowSuggestions([]);
-                      alert("TV Show imported successfully!");
+                      showToast("TV Show imported successfully!", "success");
                     } catch (err) {
-                      alert("Failed to import show: " + err.message);
+                      showToast("Failed to import show: " + err.message, "error");
                     }
                   }}
                 >
@@ -2392,9 +2530,9 @@ export default function App() {
                                 await importShow(String(sug.id));
                                 setShowSearchQuery("");
                                 setShowSuggestions([]);
-                                alert(`"${sug.title}" imported successfully!`);
+                                showToast(`"${sug.title}" imported successfully!`, "success");
                               } catch (err) {
-                                alert("Failed to import: " + err.message);
+                                showToast("Failed to import: " + err.message, "error");
                               }
                             }}
                           >
@@ -2552,9 +2690,9 @@ export default function App() {
                                     onClick={() => {
                                       if (show.pattern) {
                                         fillShowUrls(show.id);
-                                        alert("Episode URLs generated from pattern!");
+                                        showToast("Episode URLs generated from pattern!", "success");
                                       } else {
-                                        alert("Please set a URL pattern first");
+                                        showToast("Please set a URL pattern first", "error");
                                       }
                                     }}
                                   >
@@ -2643,16 +2781,16 @@ export default function App() {
                     const val = movieSearchQuery.trim();
                     if (!val) return;
                     if (!/^\d+$/.test(val)) {
-                      alert("To import by ID, enter a numeric TMDB identifier. Or select from suggestions below.");
+                      showToast("To import by ID, enter a numeric TMDB identifier. Or select from suggestions below.", "error");
                       return;
                     }
                     try {
                       await importMovie(val);
                       setMovieSearchQuery("");
                       setMovieSuggestions([]);
-                      alert("Movie imported successfully!");
+                      showToast("Movie imported successfully!", "success");
                     } catch (err) {
-                      alert("Failed to import movie: " + err.message);
+                      showToast("Failed to import movie: " + err.message, "error");
                     }
                   }}
                 >
@@ -2699,9 +2837,9 @@ export default function App() {
                                 await importMovie(String(sug.id));
                                 setMovieSearchQuery("");
                                 setMovieSuggestions([]);
-                                alert(`"${sug.title}" imported successfully!`);
+                                showToast(`"${sug.title}" imported successfully!`, "success");
                               } catch (err) {
-                                alert("Failed to import: " + err.message);
+                                showToast("Failed to import: " + err.message, "error");
                               }
                             }}
                           >
@@ -2902,6 +3040,35 @@ export default function App() {
       </main>
 
       <footer className="py-12 text-center text-xs text-slate-500/80">Built with ❤️ – Local-only demo. Add auth & backend before shipping.</footer>
+      
+      {/* Toast Notifications */}
+      <div className="fixed bottom-6 right-6 z-50 space-y-3 max-w-md">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`flex items-start gap-3 p-4 rounded-xl shadow-2xl backdrop-blur-xl border transform transition-all duration-300 animate-slide-in ${
+              toast.type === "success"
+                ? "bg-green-500/20 border-green-500/40 text-green-100"
+                : toast.type === "error"
+                ? "bg-red-500/20 border-red-500/40 text-red-100"
+                : "bg-aurora/20 border-aurora/40 text-white"
+            }`}
+          >
+            <div className="text-2xl flex-shrink-0">
+              {toast.type === "success" ? "✅" : toast.type === "error" ? "❌" : "ℹ️"}
+            </div>
+            <div className="flex-1 text-sm font-medium leading-relaxed">{toast.message}</div>
+            <button
+              onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+              className="text-white/60 hover:text-white transition-colors flex-shrink-0"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
+
+export { ErrorBoundary };
