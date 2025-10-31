@@ -1236,8 +1236,36 @@ export default function App() {
                 <SectionTitle>Channels</SectionTitle>
                 <p className="text-sm text-slate-400 max-w-2xl">Manage live streams, logos, and EPG metadata for your channel lineup.</p>
               </div>
-              <button className={primaryButton} onClick={addChannel}>Add channel</button>
+              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                <button
+                  className={secondaryButton}
+                  onClick={() => channelImportInputRef.current?.click()}
+                >
+                  Import .m3u file
+                </button>
+                <button className={primaryButton} onClick={addChannel}>Add channel</button>
+              </div>
             </div>
+            <input
+              ref={channelImportInputRef}
+              type="file"
+              accept=".m3u,.m3u8,.txt"
+              onChange={handleChannelFileInput}
+              className="hidden"
+            />
+            {(channelImportStatus.active || channelImportStatus.message) && (
+              <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-slate-300">
+                <div className="text-xs uppercase tracking-wide text-slate-500">Import status</div>
+                <div className="mt-1 text-slate-200">
+                  {channelImportStatus.message || "Processing…"}
+                </div>
+                {channelImportStatus.total > 0 && (
+                  <div className="mt-1 text-xs text-slate-500">
+                    Added {channelImportStatus.added} · Skipped {channelImportStatus.skipped} · Total {channelImportStatus.total}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="mt-6 grid gap-4">
               {channels.map((c, idx) => (
                 <div key={c.id} className="grid md:grid-cols-12 gap-3 items-center p-4 rounded-2xl border border-white/10 bg-slate-950/60 shadow-inner shadow-black/20">
