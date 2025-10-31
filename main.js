@@ -22318,7 +22318,6 @@
           }
           const hasShow = shows.some((s) => String(s.tmdbId) === String(tmdbId));
           if (hasShow) {
-            mergeEpisodeIntoShow(Number(season), Number(episode), Number(episode), url);
             mergeEpisodeIntoShow(tmdbId, Number(season), Number(episode), url);
             setLibraryProgress((prev) => ({ ...prev, imported: (prev.imported || 0) + 1, logs: [
               `\u2713 Linked episode: ${title} S${pad(season)}E${pad(episode)}`,
@@ -22642,6 +22641,11 @@
       setLibraryDuplicates([]);
       setLibraryFileEntries([]);
       setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling", imported: 0, skipped: 0 });
+      importedUrlSetRef.current.clear();
+      tmdbCacheRef.current.movies.clear();
+      tmdbCacheRef.current.shows.clear();
+      importQueueRef.current = [];
+      processingQueueRef.current = false;
       try {
         const importPromises = [];
         const files = await crawlDirectory(url, {
@@ -22680,6 +22684,9 @@
           return;
         }
         await Promise.allSettled(importPromises);
+        while (processingQueueRef.current || importQueueRef.current.length > 0) {
+          await pause(100);
+        }
         const candidates = buildLibraryCandidates(files);
         setLibraryDuplicates(candidates.duplicates);
         setLibraryProgress((prev) => ({

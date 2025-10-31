@@ -973,8 +973,6 @@ export default function App() {
         // If show already exists, merge episode; else import show with initial episode map
         const hasShow = shows.some(s => String(s.tmdbId) === String(tmdbId));
         if (hasShow) {
-          mergeEpisodeIntoShow(Number(season), Number(episode), Number(episode), url); // will be corrected below
-          // Correct parameter order
           mergeEpisodeIntoShow(tmdbId, Number(season), Number(episode), url);
           setLibraryProgress(prev => ({ ...prev, imported: (prev.imported || 0) + 1, logs: [
             `✓ Linked episode: ${title} S${pad(season)}E${pad(episode)}`,
@@ -1316,6 +1314,13 @@ export default function App() {
     setLibraryFileEntries([]);
     setLibraryProgress({ active: true, processed: 0, found: 0, logs: [], stage: "crawling", imported: 0, skipped: 0 });
     
+    // Clear import tracking refs for new scan
+    importedUrlSetRef.current.clear();
+    tmdbCacheRef.current.movies.clear();
+    tmdbCacheRef.current.shows.clear();
+    importQueueRef.current = [];
+    processingQueueRef.current = false;
+    
     try {
       const importPromises = [];
       const files = await crawlDirectory(url, {
@@ -1360,6 +1365,11 @@ export default function App() {
       
       // Wait for any in-flight import tasks to finish
       await Promise.allSettled(importPromises);
+      
+      // Also wait for the queue to fully drain
+      while (processingQueueRef.current || importQueueRef.current.length > 0) {
+        await pause(100);
+      }
 
       const candidates = buildLibraryCandidates(files);
       setLibraryDuplicates(candidates.duplicates);
