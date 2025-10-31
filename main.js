@@ -22262,6 +22262,9 @@
     const movieSearchRun = (0, import_react.useRef)(0);
     const [libraryUrl, setLibraryUrl] = (0, import_react.useState)(() => readLS("m3u_library_url", ""));
     const [scanSubfolders, setScanSubfolders] = (0, import_react.useState)(() => readLS("m3u_scan_subfolders", true));
+    const [availableFolders, setAvailableFolders] = (0, import_react.useState)([]);
+    const [selectedFolders, setSelectedFolders] = (0, import_react.useState)(/* @__PURE__ */ new Set());
+    const [loadingFolders, setLoadingFolders] = (0, import_react.useState)(false);
     const channelsByImport = (0, import_react.useMemo)(() => {
       const map = /* @__PURE__ */ new Map();
       channels.forEach((ch) => {
@@ -22686,6 +22689,39 @@
         message: `Import complete. Added ${added}, skipped ${skipped}.`
       });
     };
+    const discoverFolders = async () => {
+      const url = libraryUrl.trim();
+      if (!url) return showToast("Enter a base URL first.", "error");
+      if (!isValidUrl(url)) {
+        showToast("Invalid URL format. Please enter a valid HTTP/HTTPS URL.", "error");
+        return;
+      }
+      setLoadingFolders(true);
+      setAvailableFolders([]);
+      setSelectedFolders(/* @__PURE__ */ new Set());
+      try {
+        const initial = url.endsWith("/") ? url : `${url}/`;
+        const fetchUrl = buildLocalProxyUrl(initial);
+        const { text, linkBase } = await fetchTextWithFallback(fetchUrl);
+        const entries = parseDirectoryListing(text, linkBase);
+        const folders = entries.filter((entry) => entry.href.endsWith("/")).map((entry) => {
+          const fullUrl = new URL(entry.href, linkBase).href;
+          const name = entry.name.replace(/\/$/, "");
+          return { name, url: fullUrl };
+        }).filter((folder) => folder.name && !folder.name.startsWith("."));
+        setAvailableFolders(folders);
+        if (folders.length === 0) {
+          showToast("No subfolders found at this URL.", "info");
+        } else {
+          showToast(`Found ${folders.length} folder${folders.length !== 1 ? "s" : ""} - select which to scan`, "success");
+        }
+      } catch (err) {
+        console.error("Folder discovery error:", err);
+        showToast("Failed to load folders. Check the URL and try again.", "error");
+      } finally {
+        setLoadingFolders(false);
+      }
+    };
     const fetchLibraryCatalog = async () => {
       const url = libraryUrl.trim();
       if (!url) return showToast("Enter a base URL to crawl.", "error");
@@ -22711,37 +22747,42 @@
       processingQueueRef.current = false;
       try {
         const importPromises = [];
-        const files = await crawlDirectory(url, {
-          maxDepth: scanSubfolders ? Number.POSITIVE_INFINITY : 0,
-          throttleMs: 800,
-          onDiscover: (info) => {
-            if (info.type === "file" && info.entry) {
-              const entry = info.entry;
-              setLibraryFileEntries((prev) => {
-                const exists = prev.some((p) => (p.url || p.path) === (entry.url || entry.path));
-                if (exists) return prev;
-                return [...prev, entry];
-              });
-              setLibraryProgress((prev) => ({
-                ...prev,
-                processed: prev.processed + 1,
-                found: prev.found + 1,
-                logs: [`Found ${entry.path}`, ...prev.logs].slice(0, 6),
-                stage: "crawling"
-              }));
-              importPromises.push((async () => enqueueImport(entry))());
-              return;
+        const urlsToScan = selectedFolders.size > 0 ? Array.from(selectedFolders) : [url];
+        const allFiles = [];
+        for (const scanUrl of urlsToScan) {
+          const files = await crawlDirectory(scanUrl, {
+            maxDepth: scanSubfolders ? Number.POSITIVE_INFINITY : 0,
+            throttleMs: 800,
+            onDiscover: (info) => {
+              if (info.type === "file" && info.entry) {
+                const entry = info.entry;
+                setLibraryFileEntries((prev) => {
+                  const exists = prev.some((p) => (p.url || p.path) === (entry.url || entry.path));
+                  if (exists) return prev;
+                  return [...prev, entry];
+                });
+                setLibraryProgress((prev) => ({
+                  ...prev,
+                  processed: prev.processed + 1,
+                  found: prev.found + 1,
+                  logs: [`Found ${entry.path}`, ...prev.logs].slice(0, 6),
+                  stage: "crawling"
+                }));
+                importPromises.push((async () => enqueueImport(entry))());
+                return;
+              }
+              if (info.type === "dir") {
+                setLibraryProgress((prev) => ({
+                  ...prev,
+                  logs: [`Scanning ${info.path}`, ...prev.logs].slice(0, 6),
+                  stage: "crawling"
+                }));
+              }
             }
-            if (info.type === "dir") {
-              setLibraryProgress((prev) => ({
-                ...prev,
-                logs: [`Scanning ${info.path}`, ...prev.logs].slice(0, 6),
-                stage: "crawling"
-              }));
-            }
-          }
-        });
-        if (!files.length) {
+          });
+          allFiles.push(...files);
+        }
+        if (!allFiles.length) {
           setLibraryError(scanSubfolders ? "No playable media files detected at that URL." : "No media files found in this directory. Try enabling 'Scan subfolders' to include nested folders.");
           setLibraryProgress((prev) => ({ ...prev, active: false, stage: "empty" }));
           return;
@@ -22750,7 +22791,7 @@
         while (processingQueueRef.current || importQueueRef.current.length > 0) {
           await pause(100);
         }
-        const candidates = buildLibraryCandidates(files);
+        const candidates = buildLibraryCandidates(allFiles);
         setLibraryDuplicates(candidates.duplicates);
         setLibraryProgress((prev) => ({
           ...prev,
@@ -23291,7 +23332,7 @@
         },
         "View"
       ));
-    })))), active === "library" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Ingest HTTP Directory"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 max-w-3xl" }, "Paste the base URL to a directory index (Apache/nginx style). We\u2019ll discover playable files, infer titles, and help you import them with TMDB metadata and stream URLs attached."), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Base URL"), /* @__PURE__ */ import_react.default.createElement(
+    })))), active === "library" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Ingest HTTP Directory"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 max-w-3xl" }, "Paste the base URL to a directory index (Apache/nginx style). We\u2019ll discover playable files, infer titles, and help you import them with TMDB metadata and stream URLs attached."), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs uppercase tracking-wide text-slate-400" }, "Base URL"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         className: `${inputClass} mt-2`,
@@ -23299,7 +23340,53 @@
         value: libraryUrl,
         onChange: (e) => setLibraryUrl(e.target.value)
       }
-    ), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "inline-flex items-center gap-2 text-sm text-slate-300" }, /* @__PURE__ */ import_react.default.createElement("input", { type: "checkbox", className: "accent-aurora scale-110", checked: scanSubfolders, onChange: (e) => setScanSubfolders(e.target.checked) }), "Scan subfolders"), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xs text-slate-500" }, scanSubfolders ? "Subdirectories will be crawled recursively." : "Only files in this directory will be scanned."))), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: fetchLibraryCatalog, disabled: libraryLoading }, libraryLoading ? "Scanning & Importing\u2026" : "Scan & Auto-Import")), libraryError && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-red-300" }, libraryError), !libraryError && !libraryLoading && (libraryMovies.length || libraryShows.length) === 0 && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500" }, "No media detected yet. Try scanning to begin."))), libraryLoading && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-aurora/80" }, "Crawling directories and analysing filenames\u2026")), (libraryProgress.active || libraryProgress.processed > 0 || libraryProgress.stage === "error") && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, libraryProgress.stage === "completed" ? "Auto-import completed" : libraryProgress.stage === "importing" ? "Auto-importing with metadata\u2026" : libraryProgress.stage === "error" ? "Scan incomplete" : "Scanning\u2026"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 flex gap-4" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Found: ", libraryProgress.found), (libraryProgress.imported > 0 || libraryProgress.skipped > 0) && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("span", { className: "text-green-400" }, "Imported: ", libraryProgress.imported), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-yellow-400" }, "Skipped: ", libraryProgress.skipped)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "h-2 rounded-full bg-slate-900/60 overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement(
+    ), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "inline-flex items-center gap-2 text-sm text-slate-300" }, /* @__PURE__ */ import_react.default.createElement("input", { type: "checkbox", className: "accent-aurora scale-110", checked: scanSubfolders, onChange: (e) => setScanSubfolders(e.target.checked) }), "Scan subfolders"), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xs text-slate-500" }, scanSubfolders ? "Subdirectories will be crawled recursively." : "Only files in this directory will be scanned."))), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: `${secondaryButton} whitespace-nowrap`,
+        onClick: discoverFolders,
+        disabled: loadingFolders || libraryLoading
+      },
+      loadingFolders ? "Loading\u2026" : "\u{1F4C1} Browse Folders"
+    ), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: fetchLibraryCatalog, disabled: libraryLoading }, libraryLoading ? "Scanning & Importing\u2026" : "Scan & Auto-Import")), availableFolders.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 p-4 rounded-lg border border-white/10 bg-slate-900/40" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-white" }, "Select Folders to Scan (", selectedFolders.size, " of ", availableFolders.length, " selected)"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: "text-xs px-2 py-1 rounded bg-aurora/20 text-aurora hover:bg-aurora/30",
+        onClick: () => setSelectedFolders(new Set(availableFolders.map((f) => f.url)))
+      },
+      "Select All"
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: "text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600",
+        onClick: () => setSelectedFolders(/* @__PURE__ */ new Set())
+      },
+      "Clear"
+    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto" }, availableFolders.map((folder) => /* @__PURE__ */ import_react.default.createElement(
+      "label",
+      {
+        key: folder.url,
+        className: "flex items-center gap-2 p-2 rounded border border-white/5 hover:bg-white/5 cursor-pointer transition-colors"
+      },
+      /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          type: "checkbox",
+          className: "accent-aurora scale-110",
+          checked: selectedFolders.has(folder.url),
+          onChange: (e) => {
+            const newSelected = new Set(selectedFolders);
+            if (e.target.checked) {
+              newSelected.add(folder.url);
+            } else {
+              newSelected.delete(folder.url);
+            }
+            setSelectedFolders(newSelected);
+          }
+        }
+      ),
+      /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm text-slate-300 truncate", title: folder.name }, "\u{1F4C1} ", folder.name)
+    ))), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500 mt-3" }, selectedFolders.size === 0 ? "Select folders to scan, or leave unselected to scan the entire directory." : `Will scan ${selectedFolders.size} selected folder${selectedFolders.size !== 1 ? "s" : ""}.`)), libraryError && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-red-300" }, libraryError), !libraryError && !libraryLoading && (libraryMovies.length || libraryShows.length) === 0 && /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500" }, "No media detected yet. Try scanning to begin."))), libraryLoading && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-aurora/80" }, "Crawling directories and analysing filenames\u2026")), (libraryProgress.active || libraryProgress.processed > 0 || libraryProgress.stage === "error") && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, libraryProgress.stage === "completed" ? "Auto-import completed" : libraryProgress.stage === "importing" ? "Auto-importing with metadata\u2026" : libraryProgress.stage === "error" ? "Scan incomplete" : "Scanning\u2026"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 flex gap-4" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Found: ", libraryProgress.found), (libraryProgress.imported > 0 || libraryProgress.skipped > 0) && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("span", { className: "text-green-400" }, "Imported: ", libraryProgress.imported), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-yellow-400" }, "Skipped: ", libraryProgress.skipped)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "h-2 rounded-full bg-slate-900/60 overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement(
       "div",
       {
         className: `h-full ${libraryProgress.active ? "bg-gradient-to-r from-aurora via-sky-500 to-aurora animate-pulse" : "bg-aurora/60"}`,

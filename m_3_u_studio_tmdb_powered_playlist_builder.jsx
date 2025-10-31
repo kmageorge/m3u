@@ -942,6 +942,9 @@ export default function App() {
   const movieSearchRun = useRef(0);
   const [libraryUrl, setLibraryUrl] = useState(() => readLS("m3u_library_url", ""));
   const [scanSubfolders, setScanSubfolders] = useState(() => readLS("m3u_scan_subfolders", true));
+  const [availableFolders, setAvailableFolders] = useState([]);
+  const [selectedFolders, setSelectedFolders] = useState(new Set());
+  const [loadingFolders, setLoadingFolders] = useState(false);
   const channelsByImport = useMemo(() => {
     const map = new Map();
     channels.forEach(ch => {
@@ -1392,6 +1395,49 @@ export default function App() {
     });
   };
 
+  const discoverFolders = async () => {
+    const url = libraryUrl.trim();
+    if (!url) return showToast("Enter a base URL first.", "error");
+    
+    if (!isValidUrl(url)) {
+      showToast("Invalid URL format. Please enter a valid HTTP/HTTPS URL.", "error");
+      return;
+    }
+    
+    setLoadingFolders(true);
+    setAvailableFolders([]);
+    setSelectedFolders(new Set());
+    
+    try {
+      const initial = url.endsWith("/") ? url : `${url}/`;
+      const fetchUrl = buildLocalProxyUrl(initial);
+      const { text, linkBase } = await fetchTextWithFallback(fetchUrl);
+      const entries = parseDirectoryListing(text, linkBase);
+      
+      // Filter for directories only
+      const folders = entries
+        .filter(entry => entry.href.endsWith('/'))
+        .map(entry => {
+          const fullUrl = new URL(entry.href, linkBase).href;
+          const name = entry.name.replace(/\/$/, ''); // Remove trailing slash
+          return { name, url: fullUrl };
+        })
+        .filter(folder => folder.name && !folder.name.startsWith('.')); // Filter hidden folders
+      
+      setAvailableFolders(folders);
+      if (folders.length === 0) {
+        showToast("No subfolders found at this URL.", "info");
+      } else {
+        showToast(`Found ${folders.length} folder${folders.length !== 1 ? 's' : ''} - select which to scan`, "success");
+      }
+    } catch (err) {
+      console.error("Folder discovery error:", err);
+      showToast("Failed to load folders. Check the URL and try again.", "error");
+    } finally {
+      setLoadingFolders(false);
+    }
+  };
+
   const fetchLibraryCatalog = async () => {
     const url = libraryUrl.trim();
     if (!url) return showToast("Enter a base URL to crawl.", "error");
@@ -1423,39 +1469,49 @@ export default function App() {
     
     try {
       const importPromises = [];
-      const files = await crawlDirectory(url, {
-        maxDepth: scanSubfolders ? Number.POSITIVE_INFINITY : 0,
-        throttleMs: 800,
-        onDiscover: (info) => {
-          if (info.type === "file" && info.entry) {
-            const entry = info.entry;
-            setLibraryFileEntries(prev => {
-              const exists = prev.some(p => (p.url || p.path) === (entry.url || entry.path));
-              if (exists) return prev;
-              return [...prev, entry];
-            });
-            setLibraryProgress(prev => ({
-              ...prev,
-              processed: prev.processed + 1,
-              found: prev.found + 1,
-              logs: [`Found ${entry.path}`, ...prev.logs].slice(0, 6),
-              stage: "crawling"
-            }));
-            // Live import while scanning
-            importPromises.push((async () => enqueueImport(entry))());
-            return;
-          }
-          if (info.type === "dir") {
-            setLibraryProgress(prev => ({
-              ...prev,
-              logs: [`Scanning ${info.path}`, ...prev.logs].slice(0, 6),
-              stage: "crawling"
-            }));
-          }
-        }
-      });
       
-      if (!files.length) {
+      // If specific folders are selected, scan only those
+      const urlsToScan = selectedFolders.size > 0
+        ? Array.from(selectedFolders)
+        : [url];
+      
+      const allFiles = [];
+      for (const scanUrl of urlsToScan) {
+        const files = await crawlDirectory(scanUrl, {
+          maxDepth: scanSubfolders ? Number.POSITIVE_INFINITY : 0,
+          throttleMs: 800,
+          onDiscover: (info) => {
+            if (info.type === "file" && info.entry) {
+              const entry = info.entry;
+              setLibraryFileEntries(prev => {
+                const exists = prev.some(p => (p.url || p.path) === (entry.url || entry.path));
+                if (exists) return prev;
+                return [...prev, entry];
+              });
+              setLibraryProgress(prev => ({
+                ...prev,
+                processed: prev.processed + 1,
+                found: prev.found + 1,
+                logs: [`Found ${entry.path}`, ...prev.logs].slice(0, 6),
+                stage: "crawling"
+              }));
+              // Live import while scanning
+              importPromises.push((async () => enqueueImport(entry))());
+              return;
+            }
+            if (info.type === "dir") {
+              setLibraryProgress(prev => ({
+                ...prev,
+                logs: [`Scanning ${info.path}`, ...prev.logs].slice(0, 6),
+                stage: "crawling"
+              }));
+            }
+          }
+        });
+        allFiles.push(...files);
+      }
+      
+      if (!allFiles.length) {
         setLibraryError(scanSubfolders
           ? "No playable media files detected at that URL."
           : "No media files found in this directory. Try enabling 'Scan subfolders' to include nested folders.");
@@ -1471,7 +1527,7 @@ export default function App() {
         await pause(100);
       }
 
-      const candidates = buildLibraryCandidates(files);
+      const candidates = buildLibraryCandidates(allFiles);
       setLibraryDuplicates(candidates.duplicates);
       setLibraryProgress(prev => ({ 
         ...prev, 
@@ -2368,7 +2424,7 @@ export default function App() {
                   Paste the base URL to a directory index (Apache/nginx style). We’ll discover playable files, infer titles,
                   and help you import them with TMDB metadata and stream URLs attached.
                 </p>
-                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
                   <div>
                     <label className="block text-xs uppercase tracking-wide text-slate-400">Base URL</label>
                     <input
@@ -2385,10 +2441,75 @@ export default function App() {
                       <span className="text-xs text-slate-500">{scanSubfolders ? "Subdirectories will be crawled recursively." : "Only files in this directory will be scanned."}</span>
                     </div>
                   </div>
+                  <button 
+                    className={`${secondaryButton} whitespace-nowrap`}
+                    onClick={discoverFolders} 
+                    disabled={loadingFolders || libraryLoading}
+                  >
+                    {loadingFolders ? "Loading…" : "📁 Browse Folders"}
+                  </button>
                   <button className={primaryButton} onClick={fetchLibraryCatalog} disabled={libraryLoading}>
                     {libraryLoading ? "Scanning & Importing…" : "Scan & Auto-Import"}
                   </button>
                 </div>
+                
+                {/* Folder Selection UI */}
+                {availableFolders.length > 0 && (
+                  <div className="mt-4 p-4 rounded-lg border border-white/10 bg-slate-900/40">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="text-sm font-semibold text-white">
+                        Select Folders to Scan ({selectedFolders.size} of {availableFolders.length} selected)
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          className="text-xs px-2 py-1 rounded bg-aurora/20 text-aurora hover:bg-aurora/30"
+                          onClick={() => setSelectedFolders(new Set(availableFolders.map(f => f.url)))}
+                        >
+                          Select All
+                        </button>
+                        <button
+                          className="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 hover:bg-slate-600"
+                          onClick={() => setSelectedFolders(new Set())}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto">
+                      {availableFolders.map(folder => (
+                        <label 
+                          key={folder.url} 
+                          className="flex items-center gap-2 p-2 rounded border border-white/5 hover:bg-white/5 cursor-pointer transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            className="accent-aurora scale-110"
+                            checked={selectedFolders.has(folder.url)}
+                            onChange={(e) => {
+                              const newSelected = new Set(selectedFolders);
+                              if (e.target.checked) {
+                                newSelected.add(folder.url);
+                              } else {
+                                newSelected.delete(folder.url);
+                              }
+                              setSelectedFolders(newSelected);
+                            }}
+                          />
+                          <span className="text-sm text-slate-300 truncate" title={folder.name}>
+                            📁 {folder.name}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-3">
+                      {selectedFolders.size === 0 
+                        ? "Select folders to scan, or leave unselected to scan the entire directory."
+                        : `Will scan ${selectedFolders.size} selected folder${selectedFolders.size !== 1 ? 's' : ''}.`
+                      }
+                    </p>
+                  </div>
+                )}
+                
                 {libraryError && <div className="text-xs text-red-300">{libraryError}</div>}
                 {!libraryError && !libraryLoading && (libraryMovies.length || libraryShows.length) === 0 && (
                   <p className="text-xs text-slate-500">No media detected yet. Try scanning to begin.</p>
