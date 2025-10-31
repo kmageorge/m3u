@@ -39,6 +39,26 @@ const pad = (n, len = 2) => String(n).padStart(len, "0");
 
 const sanitize = (s) => (s ?? "").toString().replace(/\n/g, " ").trim();
 
+// LocalStorage helpers
+const readLS = (key, fallback) => {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const writeLS = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.warn("localStorage write failed:", err);
+  }
+};
+
+const saveLS = writeLS; // Alias for compatibility
+
 // ----- Validation & Matching Helpers -----
 const isValidUrl = (u) => {
   if (!u) return false;

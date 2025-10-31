@@ -21512,6 +21512,22 @@
   var import_freekeys = __toESM(require_freekeys());
   var pad = (n, len = 2) => String(n).padStart(len, "0");
   var sanitize = (s) => (s ?? "").toString().replace(/\n/g, " ").trim();
+  var readLS = (key, fallback) => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored ? JSON.parse(stored) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  var writeLS = (key, value) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (err) {
+      console.warn("localStorage write failed:", err);
+    }
+  };
+  var saveLS = writeLS;
   var isValidUrl = (u) => {
     if (!u) return false;
     try {
