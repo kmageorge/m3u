@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>M3U Studio – TMDB Playlist Builder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              midnight: "#0f172a",
+              lagoon: "#1e293b",
+              aurora: "#38bdf8",
+              orchid: "#c084fc"
+            },
+            boxShadow: {
+              glow: "0 10px 35px -12px rgba(56, 189, 248, 0.45)"
+            }
+          }
+        }
+      };
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body class="min-h-screen bg-gradient-to-br from-midnight via-lagoon to-slate-900 text-slate-100 font-['Inter',system-ui,-apple-system,sans-serif] antialiased">
+    <div id="root" class="min-h-screen"></div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
