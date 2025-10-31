@@ -845,6 +845,7 @@ export default function App() {
   const [movieSearchBusy, setMovieSearchBusy] = useState(false);
   const movieSearchRun = useRef(0);
   const [libraryUrl, setLibraryUrl] = useState(() => readLS("m3u_library_url", ""));
+  const [scanSubfolders, setScanSubfolders] = useState(() => readLS("m3u_scan_subfolders", false));
   const channelsByImport = useMemo(() => {
     const map = new Map();
     channels.forEach(ch => {
@@ -922,6 +923,7 @@ export default function App() {
   useEffect(() => saveLS("m3u_shows", shows), [shows]);
   useEffect(() => saveLS("m3u_movies", movies), [movies]);
   useEffect(() => saveLS("m3u_library_url", libraryUrl), [libraryUrl]);
+  useEffect(() => saveLS("m3u_scan_subfolders", scanSubfolders), [scanSubfolders]);
   useEffect(() => saveLS("m3u_epg_sources", epgSources), [epgSources]);
   useEffect(() => saveLS("m3u_epg_mappings", epgMappings), [epgMappings]);
   useEffect(() => saveLS("m3u_stream_health", streamHealthStatus), [streamHealthStatus]);
@@ -1185,7 +1187,7 @@ export default function App() {
     
     try {
       const files = await crawlDirectory(url, {
-         maxDepth: 0, // Only scan the provided URL, not subdirectories
+        maxDepth: scanSubfolders ? Number.POSITIVE_INFINITY : 0,
         throttleMs: 800,
         onDiscover: (info) => {
           if (info.type === "file" && info.entry) {
@@ -2239,9 +2241,13 @@ export default function App() {
                       value={libraryUrl}
                       onChange={(e)=>setLibraryUrl(e.target.value)}
                     />
-                    <p className="mt-3 text-xs text-slate-500">
-                       Only files in the provided directory URL will be scanned (subdirectories are not crawled).
-                    </p>
+                    <div className="mt-3 flex items-center gap-3">
+                      <label className="inline-flex items-center gap-2 text-sm text-slate-300">
+                        <input type="checkbox" className="accent-aurora scale-110" checked={scanSubfolders} onChange={(e)=>setScanSubfolders(e.target.checked)} />
+                        Scan subfolders
+                      </label>
+                      <span className="text-xs text-slate-500">{scanSubfolders ? "Subdirectories will be crawled recursively." : "Only files in this directory will be scanned."}</span>
+                    </div>
                   </div>
                   <button className={primaryButton} onClick={fetchLibraryCatalog} disabled={libraryLoading}>
                     {libraryLoading ? "Scanning & Importing…" : "Scan & Auto-Import"}
