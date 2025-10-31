@@ -161,7 +161,12 @@ async function fetchTextWithFallback(url) {
   const normalized = clean.endsWith("/") ? clean : `${clean}/`;
   const tryFetch = async (target) => {
     const res = await fetch(target);
-    if (!res.ok) throw new Error(`Failed to fetch ${target} (${res.status})`);
+    if (!res.ok) {
+      const err = new Error(`Failed to fetch ${target} (${res.status})`);
+      err.status = res.status;
+      err.target = target;
+      throw err;
+    }
     return { text: await res.text(), status: res.status };
   };
   try {
@@ -174,10 +179,14 @@ async function fetchTextWithFallback(url) {
       const { text } = await tryFetch(proxiedUrl);
       return { text, fetchBase: proxiedUrl, linkBase: normalized, proxied: true };
     } catch (proxyErr) {
+      if (!proxyErr.status && err?.status) proxyErr.status = err.status;
+      proxyErr.target = proxyErr.target || proxiedUrl;
       throw proxyErr;
     }
   }
 }
+
+const pause = (ms) => new Promise(res => setTimeout(res, ms));
 
 function parseDirectoryListing(htmlOrText, baseUrl) {
   const entries = [];
@@ -251,10 +260,8 @@ function parseMediaName(filename) {
   return { kind: "movie", title: title || normalized, year: yearMatch ? yearMatch[0] : undefined };
 }
 
-const pause = (ms) => new Promise(res => setTimeout(res, ms));
-
 async function crawlDirectory(baseUrl, options = {}) {
-  const { maxDepth = 2, signal, throttleMs = 150 } = options;
+  const { maxDepth = 2, signal, throttleMs = 800 } = options;
   const initial = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
   const queue = [{ fetchUrl: initial, linkUrl: initial, depth: 0 }];
   const seen = new Set();
@@ -288,6 +295,11 @@ async function crawlDirectory(baseUrl, options = {}) {
       }
     } catch (err) {
       console.warn("Failed to crawl", fetchUrl, err);
+      if (err?.status === 429) {
+        const rateErr = new Error("Rate limited by proxy (429)");
+        rateErr.status = 429;
+        throw rateErr;
+      }
       if (depth === 0) throw err;
     }
     if (throttleMs > 0 && queue.length > 0) {
@@ -536,7 +548,7 @@ export default function App() {
     setLibraryMovies([]);
     setLibraryShows([]);
     try {
-      const files = await crawlDirectory(url, { maxDepth: 3, throttleMs: 200 });
+      const files = await crawlDirectory(url, { maxDepth: 3, throttleMs: 800 });
       if (!files.length) {
         setLibraryError("No playable media files detected at that URL.");
         return;
@@ -547,7 +559,7 @@ export default function App() {
     } catch (err) {
       console.warn(err);
       const msg = err?.message || String(err);
-      if (msg.includes("(429)")) {
+      if (err?.status === 429 || msg.includes("(429)")) {
         setLibraryError("Rate limited while using the fetch proxy (HTTP 429). Wait a moment and try again.");
       } else if (msg.includes("Failed to fetch")) {
         setLibraryError("Unable to fetch that directory index. The host may block cross-origin access.");
