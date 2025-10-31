@@ -22005,6 +22005,103 @@
     });
     return lines.join("\n");
   }
+  function buildEPG({ channels, shows, movies, epgMappings = {} }) {
+    const escapeXml = (str) => {
+      if (!str) return "";
+      return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+    };
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="M3U Studio">\n';
+    channels.forEach((ch) => {
+      const channelId = epgMappings[ch.id]?.epgChannelId || ch.id;
+      xml += `  <channel id="${escapeXml(channelId)}">
+`;
+      xml += `    <display-name>${escapeXml(ch.name)}</display-name>
+`;
+      if (ch.logo) {
+        xml += `    <icon src="${escapeXml(ch.logo)}" />
+`;
+      }
+      xml += `  </channel>
+`;
+    });
+    shows.forEach((show) => {
+      (show.seasons || []).forEach((sea) => {
+        (sea.episodes || []).forEach((ep) => {
+          const channelId = `${show.tmdbId}-S${sea.season}E${ep.episode}`;
+          xml += `  <channel id="${escapeXml(channelId)}">
+`;
+          xml += `    <display-name>${escapeXml(show.title)} S${pad(sea.season)}E${pad(ep.episode)}</display-name>
+`;
+          if (show.poster) {
+            xml += `    <icon src="${escapeXml(show.poster)}" />
+`;
+          }
+          xml += `  </channel>
+`;
+        });
+      });
+    });
+    movies.forEach((m) => {
+      xml += `  <channel id="${escapeXml(m.tmdbId)}">
+`;
+      xml += `    <display-name>${escapeXml(m.title)}</display-name>
+`;
+      if (m.poster) {
+        xml += `    <icon src="${escapeXml(m.poster)}" />
+`;
+      }
+      xml += `  </channel>
+`;
+    });
+    const now = /* @__PURE__ */ new Date();
+    const startTime = now.toISOString().replace(/[-:]/g, "").split(".")[0] + " +0000";
+    const endDate = new Date(now.getTime() + 24 * 60 * 60 * 1e3);
+    const endTime = endDate.toISOString().replace(/[-:]/g, "").split(".")[0] + " +0000";
+    channels.forEach((ch) => {
+      const channelId = epgMappings[ch.id]?.epgChannelId || ch.id;
+      xml += `  <programme start="${startTime}" stop="${endTime}" channel="${escapeXml(channelId)}">
+`;
+      xml += `    <title lang="en">${escapeXml(ch.name)}</title>
+`;
+      xml += `    <desc lang="en">Live stream</desc>
+`;
+      xml += `  </programme>
+`;
+    });
+    shows.forEach((show) => {
+      (show.seasons || []).forEach((sea) => {
+        (sea.episodes || []).forEach((ep) => {
+          const channelId = `${show.tmdbId}-S${sea.season}E${ep.episode}`;
+          xml += `  <programme start="${startTime}" stop="${endTime}" channel="${escapeXml(channelId)}">
+`;
+          xml += `    <title lang="en">${escapeXml(show.title)}</title>
+`;
+          xml += `    <sub-title lang="en">${escapeXml(ep.title || `Episode ${ep.episode}`)}</sub-title>
+`;
+          xml += `    <desc lang="en">${escapeXml(show.overview)}</desc>
+`;
+          xml += `    <episode-num system="xmltv_ns">${sea.season - 1}.${ep.episode - 1}.0/1</episode-num>
+`;
+          xml += `  </programme>
+`;
+        });
+      });
+    });
+    movies.forEach((m) => {
+      xml += `  <programme start="${startTime}" stop="${endTime}" channel="${escapeXml(m.tmdbId)}">
+`;
+      xml += `    <title lang="en">${escapeXml(m.title)}</title>
+`;
+      xml += `    <desc lang="en">${escapeXml(m.overview)}</desc>
+`;
+      xml += `    <category lang="en">Movie</category>
+`;
+      xml += `  </programme>
+`;
+    });
+    xml += "</tv>";
+    return xml;
+  }
   var TabBtn = ({ active, onClick, children, icon }) => /* @__PURE__ */ import_react.default.createElement(
     "button",
     {
@@ -22136,6 +22233,7 @@
     const ghostButton = `${baseButton} border border-white/10 text-slate-300 bg-transparent focus:ring-aurora/30 hover:border-aurora/50 hover:text-aurora hover:bg-aurora/5`;
     const dangerButton = `${baseButton} border border-red-500/40 text-red-300 bg-red-500/10 focus:ring-red-400/50 hover:bg-red-500/20 hover:border-red-500/60`;
     const m3u = (0, import_react.useMemo)(() => buildM3U({ channels, shows, movies }), [channels, shows, movies]);
+    const epg = (0, import_react.useMemo)(() => buildEPG({ channels, shows, movies, epgMappings }), [channels, shows, movies, epgMappings]);
     const libraryCandidates = (0, import_react.useMemo)(() => buildLibraryCandidates(libraryFileEntries), [libraryFileEntries]);
     (0, import_react.useEffect)(() => {
       setLibraryMovies((prev) => {
@@ -22180,6 +22278,11 @@
     (0, import_react.useEffect)(() => saveLS("m3u_epg_sources", epgSources), [epgSources]);
     (0, import_react.useEffect)(() => saveLS("m3u_epg_mappings", epgMappings), [epgMappings]);
     (0, import_react.useEffect)(() => saveLS("m3u_stream_health", streamHealthStatus), [streamHealthStatus]);
+    const [epgSyncStatus, setEpgSyncStatus] = (0, import_react.useState)("idle");
+    const epgUrl = (0, import_react.useMemo)(() => {
+      if (typeof window === "undefined") return "";
+      return `${window.location.origin}/epg.xml`;
+    }, []);
     (0, import_react.useEffect)(() => {
       if (!m3u) return;
       let cancelled = false;
@@ -22210,6 +22313,36 @@
         if (resetTimer) clearTimeout(resetTimer);
       };
     }, [m3u]);
+    (0, import_react.useEffect)(() => {
+      if (!epg) return;
+      let cancelled = false;
+      let resetTimer;
+      const debounce = setTimeout(() => {
+        setEpgSyncStatus("syncing");
+        fetch("/api/epg", {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain;charset=utf-8"
+          },
+          body: epg
+        }).then((res) => {
+          if (!res.ok) throw new Error(`EPG sync failed (${res.status})`);
+          if (cancelled) return;
+          setEpgSyncStatus("saved");
+          resetTimer = setTimeout(() => {
+            if (!cancelled) setEpgSyncStatus("idle");
+          }, 2e3);
+        }).catch((err) => {
+          console.warn("Unable to sync EPG", err);
+          if (!cancelled) setEpgSyncStatus("error");
+        });
+      }, 500);
+      return () => {
+        cancelled = true;
+        clearTimeout(debounce);
+        if (resetTimer) clearTimeout(resetTimer);
+      };
+    }, [epg]);
     (0, import_react.useEffect)(() => {
       if (freekeyFetchAttempted.current || apiKey) return;
       freekeyFetchAttempted.current = true;
@@ -22622,10 +22755,10 @@
       if (updates.name !== void 0) {
         updates.name = sanitizeInput(updates.name);
       }
-      setEpgSources((prev) => prev.map((epg) => epg.id === id ? { ...epg, ...updates } : epg));
+      setEpgSources((prev) => prev.map((epg2) => epg2.id === id ? { ...epg2, ...updates } : epg2));
     };
     const removeEpgSource = (id) => {
-      setEpgSources((prev) => prev.filter((epg) => epg.id !== id));
+      setEpgSources((prev) => prev.filter((epg2) => epg2.id !== id));
       setEpgMappings((prev) => {
         const newMappings = { ...prev };
         Object.keys(newMappings).forEach((channelId) => {
@@ -23168,17 +23301,17 @@
       "\u{1F5D1}\uFE0F Delete (",
       selectedEpgSources.size,
       ")"
-    ))), epgSources.length === 0 ? /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16 rounded-xl bg-slate-800/40 border border-dashed border-white/10" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F4E1}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No EPG Sources"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400 mb-6" }, "Add an EPG XML URL to enable program guides for your channels"), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: addEpgSource }, "\u2795 Add First EPG Source")) : /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, epgSources.map((epg) => /* @__PURE__ */ import_react.default.createElement("div", { key: epg.id, className: "rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ import_react.default.createElement(
+    ))), epgSources.length === 0 ? /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16 rounded-xl bg-slate-800/40 border border-dashed border-white/10" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F4E1}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No EPG Sources"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400 mb-6" }, "Add an EPG XML URL to enable program guides for your channels"), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: addEpgSource }, "\u2795 Add First EPG Source")) : /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, epgSources.map((epg2) => /* @__PURE__ */ import_react.default.createElement("div", { key: epg2.id, className: "rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         type: "checkbox",
-        checked: selectedEpgSources.has(epg.id),
+        checked: selectedEpgSources.has(epg2.id),
         onChange: (e) => {
           const newSelected = new Set(selectedEpgSources);
           if (e.target.checked) {
-            newSelected.add(epg.id);
+            newSelected.add(epg2.id);
           } else {
-            newSelected.delete(epg.id);
+            newSelected.delete(epg2.id);
           }
           setSelectedEpgSources(newSelected);
         },
@@ -23189,23 +23322,23 @@
       {
         className: inputClass,
         placeholder: "e.g., Main EPG, Backup EPG",
-        value: epg.name,
-        onChange: (e) => updateEpgSource(epg.id, { name: e.target.value })
+        value: epg2.name,
+        onChange: (e) => updateEpgSource(epg2.id, { name: e.target.value })
       }
     )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "EPG XML URL"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         className: inputClass,
         placeholder: "https://example.com/epg.xml or http://example.com/xmltv.php",
-        value: epg.url,
-        onChange: (e) => updateEpgSource(epg.id, { url: e.target.value })
+        value: epg2.url,
+        onChange: (e) => updateEpgSource(epg2.id, { url: e.target.value })
       }
     ), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500 mt-2 flex items-start gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora" }, "\u{1F4A1}"), /* @__PURE__ */ import_react.default.createElement("span", null, "XMLTV format EPG files. Can be local file:// URLs or HTTP/HTTPS endpoints")))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 items-end" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "text-xs font-semibold text-slate-400" }, "Enabled"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         type: "checkbox",
-        checked: epg.enabled,
-        onChange: (e) => updateEpgSource(epg.id, { enabled: e.target.checked }),
+        checked: epg2.enabled,
+        onChange: (e) => updateEpgSource(epg2.id, { enabled: e.target.checked }),
         className: "rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
       }
     )), /* @__PURE__ */ import_react.default.createElement(
@@ -23213,13 +23346,13 @@
       {
         className: "text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all",
         onClick: () => {
-          if (window.confirm(`Delete EPG source "${epg.name}"?`)) {
-            removeEpgSource(epg.id);
+          if (window.confirm(`Delete EPG source "${epg2.name}"?`)) {
+            removeEpgSource(epg2.id);
           }
         }
       },
       "\u{1F5D1}\uFE0F Remove"
-    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 text-xs text-slate-500" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Created: ", new Date(epg.createdAt).toLocaleDateString()), /* @__PURE__ */ import_react.default.createElement("span", null, "\u2022"), /* @__PURE__ */ import_react.default.createElement("span", { className: epg.enabled ? "text-green-400" : "text-slate-500" }, epg.enabled ? "\u2713 Active" : "\u25CB Disabled"))))))))), epgSources.length > 0 && channels.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F517} Channel EPG Mapping"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, "Map your channels to EPG data for program guide information")), /* @__PURE__ */ import_react.default.createElement(
+    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 text-xs text-slate-500" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Created: ", new Date(epg2.createdAt).toLocaleDateString()), /* @__PURE__ */ import_react.default.createElement("span", null, "\u2022"), /* @__PURE__ */ import_react.default.createElement("span", { className: epg2.enabled ? "text-green-400" : "text-slate-500" }, epg2.enabled ? "\u2713 Active" : "\u25CB Disabled"))))))))), epgSources.length > 0 && channels.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F517} Channel EPG Mapping"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, "Map your channels to EPG data for program guide information")), /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
         className: primaryButton,
@@ -23559,7 +23692,7 @@
         value: movie.overview || "",
         onChange: (e) => setMoviePatch(movie.id, { overview: e.target.value })
       }
-    )))))))))), movies.length === 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No Movies Yet"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "Search and add your first movie to get started")))), active === "playlist" && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Playlist Preview (.m3u)"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-3" }, /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: () => downloadText("playlist.m3u", m3u) }, "Download .m3u"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => navigator.clipboard.writeText(m3u) }, "Copy"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted playlist URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: playlistUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(playlistUrl) }, "Copy URL")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, playlistSyncStatus === "syncing" && "Uploading latest playlist\u2026", playlistSyncStatus === "saved" && "Playlist synced. Use this URL in any IPTV player.", playlistSyncStatus === "error" && "Sync failed \u2014 the download button still gives you a local file.", playlistSyncStatus === "idle" && "Playlist ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("textarea", { className: `${inputClass} h-96 font-mono text-sm`, value: m3u, onChange: () => {
+    )))))))))), movies.length === 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No Movies Yet"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "Search and add your first movie to get started")))), active === "playlist" && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Playlist Preview (.m3u)"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-3" }, /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: () => downloadText("playlist.m3u", m3u) }, "Download .m3u"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => navigator.clipboard.writeText(m3u) }, "Copy"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted playlist URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: playlistUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(playlistUrl) }, "Copy URL")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, playlistSyncStatus === "syncing" && "Uploading latest playlist\u2026", playlistSyncStatus === "saved" && "Playlist synced. Use this URL in any IPTV player.", playlistSyncStatus === "error" && "Sync failed \u2014 the download button still gives you a local file.", playlistSyncStatus === "idle" && "Playlist ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-6 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted EPG/XMLTV URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: epgUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(epgUrl) }, "Copy URL"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => downloadText("epg.xml", epg) }, "Download XML")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, epgSyncStatus === "syncing" && "Uploading latest EPG\u2026", epgSyncStatus === "saved" && "EPG synced. Use this URL in IPTV players that support EPG.", epgSyncStatus === "error" && "EPG sync failed \u2014 the download button still gives you a local file.", epgSyncStatus === "idle" && "EPG ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("textarea", { className: `${inputClass} h-96 font-mono text-sm`, value: m3u, onChange: () => {
     } }), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 mt-3" }, "Entries use #EXTINF with tvg-id, tvg-logo, group-title, and tvg-chno when provided."))), /* @__PURE__ */ import_react.default.createElement("footer", { className: "py-12 text-center text-xs text-slate-500/80" }, "Built with \u2764\uFE0F \u2013 Local-only demo. Add auth & backend before shipping."), /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed bottom-6 right-6 z-50 space-y-3 max-w-md" }, toasts.map((toast) => /* @__PURE__ */ import_react.default.createElement(
       "div",
       {

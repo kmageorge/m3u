@@ -6,6 +6,7 @@ const PORT = process.env.PORT || 3000;
 const PROXY_TIMEOUT = Number(process.env.PROXY_TIMEOUT || 15000);
 const BING_IMAGE_API_KEY = process.env.BING_IMAGE_API_KEY || "";
 let latestPlaylist = "#EXTM3U";
+let latestEpg = '<?xml version="1.0" encoding="UTF-8"?>\n<tv></tv>';
 
 app.use(express.static(path.resolve(__dirname)));
 
@@ -110,6 +111,21 @@ app.get("/playlist.m3u", (req, res) => {
   res.setHeader("Content-Type", "audio/x-mpegurl; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache");
   res.send(latestPlaylist);
+});
+
+app.post("/api/epg", express.text({ type: "*/*", limit: "10mb" }), (req, res) => {
+  const body = req.body ?? "";
+  if (!body.trim()) {
+    return res.status(400).json({ ok: false, message: "EPG body required" });
+  }
+  latestEpg = body;
+  res.json({ ok: true });
+});
+
+app.get("/epg.xml", (req, res) => {
+  res.setHeader("Content-Type", "application/xml; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache");
+  res.send(latestEpg);
 });
 
 app.listen(PORT, () => {

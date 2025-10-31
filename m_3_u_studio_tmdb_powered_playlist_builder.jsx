@@ -599,6 +599,99 @@ function buildM3U({ channels, shows, movies }) {
   return lines.join("\n");
 }
 
+// ---------- EPG/XMLTV generation ----------
+function buildEPG({ channels, shows, movies, epgMappings = {} }) {
+  const escapeXml = (str) => {
+    if (!str) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+  };
+
+  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="M3U Studio">\n';
+
+  // Add channel definitions
+  channels.forEach(ch => {
+    const channelId = epgMappings[ch.id]?.epgChannelId || ch.id;
+    xml += `  <channel id="${escapeXml(channelId)}">\n`;
+    xml += `    <display-name>${escapeXml(ch.name)}</display-name>\n`;
+    if (ch.logo) {
+      xml += `    <icon src="${escapeXml(ch.logo)}" />\n`;
+    }
+    xml += `  </channel>\n`;
+  });
+
+  // Add TV show episodes as programs
+  shows.forEach(show => {
+    (show.seasons || []).forEach(sea => {
+      (sea.episodes || []).forEach(ep => {
+        const channelId = `${show.tmdbId}-S${sea.season}E${ep.episode}`;
+        xml += `  <channel id="${escapeXml(channelId)}">\n`;
+        xml += `    <display-name>${escapeXml(show.title)} S${pad(sea.season)}E${pad(ep.episode)}</display-name>\n`;
+        if (show.poster) {
+          xml += `    <icon src="${escapeXml(show.poster)}" />\n`;
+        }
+        xml += `  </channel>\n`;
+      });
+    });
+  });
+
+  // Add movies as channels
+  movies.forEach(m => {
+    xml += `  <channel id="${escapeXml(m.tmdbId)}">\n`;
+    xml += `    <display-name>${escapeXml(m.title)}</display-name>\n`;
+    if (m.poster) {
+      xml += `    <icon src="${escapeXml(m.poster)}" />\n`;
+    }
+    xml += `  </channel>\n`;
+  });
+
+  // Add basic program schedule (current time for 24h duration as placeholder)
+  const now = new Date();
+  const startTime = now.toISOString().replace(/[-:]/g, "").split(".")[0] + " +0000";
+  const endDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const endTime = endDate.toISOString().replace(/[-:]/g, "").split(".")[0] + " +0000";
+
+  // Add programs for channels
+  channels.forEach(ch => {
+    const channelId = epgMappings[ch.id]?.epgChannelId || ch.id;
+    xml += `  <programme start="${startTime}" stop="${endTime}" channel="${escapeXml(channelId)}">\n`;
+    xml += `    <title lang="en">${escapeXml(ch.name)}</title>\n`;
+    xml += `    <desc lang="en">Live stream</desc>\n`;
+    xml += `  </programme>\n`;
+  });
+
+  // Add programs for TV shows
+  shows.forEach(show => {
+    (show.seasons || []).forEach(sea => {
+      (sea.episodes || []).forEach(ep => {
+        const channelId = `${show.tmdbId}-S${sea.season}E${ep.episode}`;
+        xml += `  <programme start="${startTime}" stop="${endTime}" channel="${escapeXml(channelId)}">\n`;
+        xml += `    <title lang="en">${escapeXml(show.title)}</title>\n`;
+        xml += `    <sub-title lang="en">${escapeXml(ep.title || `Episode ${ep.episode}`)}</sub-title>\n`;
+        xml += `    <desc lang="en">${escapeXml(show.overview)}</desc>\n`;
+        xml += `    <episode-num system="xmltv_ns">${sea.season - 1}.${ep.episode - 1}.0/1</episode-num>\n`;
+        xml += `  </programme>\n`;
+      });
+    });
+  });
+
+  // Add programs for movies
+  movies.forEach(m => {
+    xml += `  <programme start="${startTime}" stop="${endTime}" channel="${escapeXml(m.tmdbId)}">\n`;
+    xml += `    <title lang="en">${escapeXml(m.title)}</title>\n`;
+    xml += `    <desc lang="en">${escapeXml(m.overview)}</desc>\n`;
+    xml += `    <category lang="en">Movie</category>\n`;
+    xml += `  </programme>\n`;
+  });
+
+  xml += "</tv>";
+  return xml;
+}
+
 // ---------- UI primitives ----------
 const TabBtn = ({ active, onClick, children, icon }) => (
   <button
@@ -785,6 +878,7 @@ export default function App() {
   const ghostButton = `${baseButton} border border-white/10 text-slate-300 bg-transparent focus:ring-aurora/30 hover:border-aurora/50 hover:text-aurora hover:bg-aurora/5`;
   const dangerButton = `${baseButton} border border-red-500/40 text-red-300 bg-red-500/10 focus:ring-red-400/50 hover:bg-red-500/20 hover:border-red-500/60`;
   const m3u = useMemo(() => buildM3U({ channels, shows, movies }), [channels, shows, movies]);
+  const epg = useMemo(() => buildEPG({ channels, shows, movies, epgMappings }), [channels, shows, movies, epgMappings]);
 
   const libraryCandidates = useMemo(() => buildLibraryCandidates(libraryFileEntries), [libraryFileEntries]);
 
@@ -831,6 +925,11 @@ export default function App() {
   useEffect(() => saveLS("m3u_epg_sources", epgSources), [epgSources]);
   useEffect(() => saveLS("m3u_epg_mappings", epgMappings), [epgMappings]);
   useEffect(() => saveLS("m3u_stream_health", streamHealthStatus), [streamHealthStatus]);
+  const [epgSyncStatus, setEpgSyncStatus] = useState("idle");
+  const epgUrl = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return `${window.location.origin}/epg.xml`;
+  }, []);
   useEffect(() => {
     if (!m3u) return;
     let cancelled = false;
@@ -863,6 +962,38 @@ export default function App() {
       if (resetTimer) clearTimeout(resetTimer);
     };
   }, [m3u]);
+  useEffect(() => {
+    if (!epg) return;
+    let cancelled = false;
+    let resetTimer;
+    const debounce = setTimeout(() => {
+      setEpgSyncStatus("syncing");
+      fetch("/api/epg", {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8"
+        },
+        body: epg
+      })
+        .then(res => {
+          if (!res.ok) throw new Error(`EPG sync failed (${res.status})`);
+          if (cancelled) return;
+          setEpgSyncStatus("saved");
+          resetTimer = setTimeout(() => {
+            if (!cancelled) setEpgSyncStatus("idle");
+          }, 2000);
+        })
+        .catch(err => {
+          console.warn("Unable to sync EPG", err);
+          if (!cancelled) setEpgSyncStatus("error");
+        });
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(debounce);
+      if (resetTimer) clearTimeout(resetTimer);
+    };
+  }, [epg]);
   useEffect(() => {
     if (freekeyFetchAttempted.current || apiKey) return;
     freekeyFetchAttempted.current = true;
@@ -3399,6 +3530,20 @@ export default function App() {
                 {playlistSyncStatus === "saved" && "Playlist synced. Use this URL in any IPTV player."}
                 {playlistSyncStatus === "error" && "Sync failed — the download button still gives you a local file."}
                 {playlistSyncStatus === "idle" && "Playlist ready. Changes auto-sync to the URL above."}
+              </div>
+            </div>
+            <div className="mt-6 space-y-2">
+              <div className="text-xs uppercase tracking-wide text-slate-400">Hosted EPG/XMLTV URL</div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <input className={`${inputClass} sm:flex-1`} readOnly value={epgUrl} />
+                <button className={secondaryButton} onClick={()=>navigator.clipboard.writeText(epgUrl)}>Copy URL</button>
+                <button className={ghostButton} onClick={()=>downloadText("epg.xml", epg)}>Download XML</button>
+              </div>
+              <div className="text-xs text-slate-500">
+                {epgSyncStatus === "syncing" && "Uploading latest EPG…"}
+                {epgSyncStatus === "saved" && "EPG synced. Use this URL in IPTV players that support EPG."}
+                {epgSyncStatus === "error" && "EPG sync failed — the download button still gives you a local file."}
+                {epgSyncStatus === "idle" && "EPG ready. Changes auto-sync to the URL above."}
               </div>
             </div>
             <textarea className={`${inputClass} h-96 font-mono text-sm`} value={m3u} onChange={()=>{}} />
