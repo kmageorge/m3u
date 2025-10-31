@@ -168,11 +168,11 @@ async function fetchTextWithFallback(url) {
     const { text } = await tryFetch(normalized);
     return { text, fetchBase: normalized, linkBase: normalized, proxied: false };
   } catch (err) {
-    const normalizedHttps = normalized.startsWith("http") ? normalized : `https://${normalized}`;
-    const proxiedUrl = `https://r.jina.ai/${normalizedHttps}`;
+    const normalizedForProxy = normalized.startsWith("http") ? normalized : `https://${normalized}`;
+    const proxiedUrl = `https://r.jina.ai/${normalizedForProxy}`;
     try {
       const { text } = await tryFetch(proxiedUrl);
-      return { text, fetchBase: proxiedUrl, linkBase: normalizedHttps, proxied: true };
+      return { text, fetchBase: proxiedUrl, linkBase: normalized, proxied: true };
     } catch (proxyErr) {
       throw proxyErr;
     }
