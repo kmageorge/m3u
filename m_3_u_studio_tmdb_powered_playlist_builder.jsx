@@ -3938,32 +3938,95 @@ export default function App() {
                               </div>
                             </details>
 
-                            {/* Seasons Overview */}
-                            <details>
+                            {/* Seasons & Episodes with Stream Links */}
+                            <details className="group">
                               <summary className="cursor-pointer text-sm font-semibold text-slate-300 hover:text-white flex items-center gap-2">
                                 📋 View Seasons & Episodes
+                                <span className="text-xs text-slate-500">({show.seasons?.length || 0} seasons, {totalEpisodes} episodes)</span>
                               </summary>
-                              <div className="mt-3 space-y-2 max-h-60 overflow-y-auto">
-                                {show.seasons?.map(season => (
-                                  <div key={season.season} className="text-xs bg-slate-900/40 rounded-lg p-3 border border-white/5">
-                                    <div className="font-semibold text-white mb-1">
-                                      Season {season.season} - {season.episodes?.length || 0} episodes
-                                    </div>
-                                    <div className="text-slate-400 space-y-1">
-                                      {season.episodes?.slice(0, 5).map(ep => (
-                                        <div key={ep.episode} className="flex items-center gap-2">
-                                          <span className={ep.url ? "text-green-400" : "text-slate-500"}>
-                                            {ep.url ? "✓" : "○"}
+                              <div className="mt-3 space-y-3 max-h-96 overflow-y-auto">
+                                {show.seasons?.map(season => {
+                                  const seasonEpisodes = season.episodes || [];
+                                  const linkedCount = seasonEpisodes.filter(ep => ep.url).length;
+                                  
+                                  return (
+                                    <details key={season.season} className="bg-slate-900/40 rounded-lg border border-white/5">
+                                      <summary className="cursor-pointer p-3 hover:bg-slate-800/60 rounded-lg transition-colors flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                          <span className="text-sm font-semibold text-white">
+                                            Season {season.season}
                                           </span>
-                                          <span>E{String(ep.episode).padStart(2, "0")}: {ep.title}</span>
+                                          <span className="text-xs text-slate-400">
+                                            {seasonEpisodes.length} episode{seasonEpisodes.length !== 1 ? 's' : ''}
+                                          </span>
+                                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                            linkedCount === seasonEpisodes.length 
+                                              ? 'bg-green-500/20 text-green-300' 
+                                              : linkedCount > 0
+                                              ? 'bg-yellow-500/20 text-yellow-300'
+                                              : 'bg-slate-700 text-slate-400'
+                                          }`}>
+                                            {linkedCount}/{seasonEpisodes.length} linked
+                                          </span>
                                         </div>
-                                      ))}
-                                      {season.episodes && season.episodes.length > 5 && (
-                                        <div className="text-slate-500 italic">...and {season.episodes.length - 5} more</div>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
+                                      </summary>
+                                      <div className="px-3 pb-3 space-y-2">
+                                        {seasonEpisodes.map(ep => (
+                                          <div key={ep.episode} className="flex flex-col gap-2 p-2 rounded bg-slate-950/60 border border-white/5">
+                                            <div className="flex items-start justify-between gap-2">
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                  <span className={`text-xs font-mono ${ep.url ? 'text-green-400' : 'text-slate-500'}`}>
+                                                    {ep.url ? '✓' : '○'}
+                                                  </span>
+                                                  <span className="text-xs font-semibold text-white">
+                                                    Episode {ep.episode}
+                                                  </span>
+                                                  {ep.title && (
+                                                    <span className="text-xs text-slate-400 truncate">
+                                                      {ep.title}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                {ep.overview && (
+                                                  <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                                                    {ep.overview}
+                                                  </p>
+                                                )}
+                                              </div>
+                                            </div>
+                                            {ep.url ? (
+                                              <div className="flex items-center gap-2">
+                                                <a
+                                                  href={ep.url}
+                                                  target="_blank"
+                                                  rel="noreferrer"
+                                                  className="flex-1 text-xs text-aurora hover:text-sky-400 truncate font-mono bg-slate-900/80 px-2 py-1 rounded border border-aurora/20 hover:border-aurora/40 transition-colors"
+                                                  title={ep.url}
+                                                >
+                                                  {ep.url}
+                                                </a>
+                                                <button
+                                                  onClick={() => {
+                                                    navigator.clipboard.writeText(ep.url);
+                                                    showToast("Stream URL copied!", "success");
+                                                  }}
+                                                  className="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+                                                >
+                                                  Copy
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <div className="text-xs text-slate-500 italic px-2 py-1 bg-slate-900/40 rounded border border-dashed border-white/5">
+                                                No stream URL set
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </details>
+                                  );
+                                })}
                               </div>
                             </details>
                           </div>
