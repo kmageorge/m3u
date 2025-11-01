@@ -21966,7 +21966,14 @@
           const href = a.getAttribute("href") || "";
           if (!href || href.startsWith("?") || href.startsWith("#") || href.includes("javascript")) return;
           if (href === "../" || href === "./") return;
-          const name = a.textContent?.trim() || decodeURIComponent(href);
+          let name = a.textContent?.trim();
+          if (!name) {
+            try {
+              name = decodeURIComponent(href);
+            } catch (err) {
+              name = href;
+            }
+          }
           const isDir = href.endsWith("/");
           entries.push({ href, name: name.replace(/[\/]+$/, ""), type: isDir ? "dir" : "file" });
         });
@@ -22000,14 +22007,7 @@
     return cleaned.replace(/\s+/g, " ").trim();
   }
   function parseMediaName(filename, fullPath = "") {
-    let decoded;
-    try {
-      decoded = decodeURIComponent(filename);
-    } catch (err) {
-      console.warn("Failed to decode URI:", filename, err);
-      decoded = filename;
-    }
-    const noExt = decoded.replace(/\.[^/.]+$/, "");
+    const noExt = filename.replace(/\.[^/.]+$/, "");
     const episodeRegex = /(?:^|\b)[Ss](\d{1,2})[^\d]{0,2}[Ee](\d{1,2})(?:\b|[^0-9])/;
     const seasonEpisodeAlt = /Season\s*(\d{1,2}).*Episode\s*(\d{1,2})/i;
     const xNotation = /(\d{1,2})x(\d{1,2})/;

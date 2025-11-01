@@ -530,7 +530,16 @@ function parseDirectoryListing(htmlOrText, baseUrl) {
         const href = a.getAttribute("href") || "";
         if (!href || href.startsWith("?") || href.startsWith("#") || href.includes("javascript")) return;
         if (href === "../" || href === "./") return;
-        const name = a.textContent?.trim() || decodeURIComponent(href);
+        // Use text content as name if available, otherwise safely decode href
+        let name = a.textContent?.trim();
+        if (!name) {
+          try {
+            name = decodeURIComponent(href);
+          } catch (err) {
+            // If decode fails, use raw href
+            name = href;
+          }
+        }
         const isDir = href.endsWith("/");
         entries.push({ href, name: name.replace(/[\/]+$/, ""), type: isDir ? "dir" : "file" });
       });
@@ -588,16 +597,8 @@ function normalizeTitle(raw) {
 }
 
 function parseMediaName(filename, fullPath = "") {
-  // Safely decode URI - handle malformed sequences
-  let decoded;
-  try {
-    decoded = decodeURIComponent(filename);
-  } catch (err) {
-    // If decoding fails (e.g., malformed URI like "30%"), use raw filename
-    console.warn("Failed to decode URI:", filename, err);
-    decoded = filename;
-  }
-  const noExt = decoded.replace(/\.[^/.]+$/, "");
+  // Don't decode - the filename should already be decoded from directory listing
+  const noExt = filename.replace(/\.[^/.]+$/, "");
   
   // Check for episode patterns first (before normalizing)
   const episodeRegex = /(?:^|\b)[Ss](\d{1,2})[^\d]{0,2}[Ee](\d{1,2})(?:\b|[^0-9])/;
