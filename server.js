@@ -25,6 +25,134 @@ const db = new sqlite3.Database('./m3u_studio.db', (err) => {
   }
 });
 
+// Migrate old database schema to new user-scoped schema
+function migrateOldSchema() {
+  db.serialize(() => {
+    console.log("Starting database migration...");
+    
+    // First, ensure admin user exists
+    db.get("SELECT id FROM users WHERE role = 'admin'", [], (err, adminUser) => {
+      if (err) {
+        console.error('Error checking for admin user:', err);
+        return;
+      }
+      
+      let adminId = adminUser?.id;
+      
+      const completeMigration = (userId) => {
+        db.run("BEGIN TRANSACTION");
+        
+        // Backup old tables
+        db.run("ALTER TABLE settings RENAME TO settings_old");
+        db.run("ALTER TABLE channels RENAME TO channels_old");
+        db.run("ALTER TABLE shows RENAME TO shows_old");
+        db.run("ALTER TABLE movies RENAME TO movies_old");
+        
+        // Create new tables with user_id
+        db.run(`
+          CREATE TABLE settings (
+            key TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            value TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (key, user_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+          )
+        `);
+        
+        db.run(`
+          CREATE TABLE channels (
+            id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            data TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id, user_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+          )
+        `);
+        
+        db.run(`
+          CREATE TABLE shows (
+            id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            data TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id, user_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+          )
+        `);
+        
+        db.run(`
+          CREATE TABLE movies (
+            id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            data TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id, user_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+          )
+        `);
+        
+        // Migrate data to admin user
+        db.run(`INSERT INTO settings (key, user_id, value, updated_at) 
+                SELECT key, ${userId}, value, updated_at FROM settings_old`);
+        
+        db.run(`INSERT INTO channels (id, user_id, data, created_at, updated_at) 
+                SELECT id, ${userId}, data, created_at, updated_at FROM channels_old`);
+        
+        db.run(`INSERT INTO shows (id, user_id, data, created_at, updated_at) 
+                SELECT id, ${userId}, data, created_at, updated_at FROM shows_old`);
+        
+        db.run(`INSERT INTO movies (id, user_id, data, created_at, updated_at) 
+                SELECT id, ${userId}, data, created_at, updated_at FROM movies_old`);
+        
+        // Drop old tables
+        db.run("DROP TABLE settings_old");
+        db.run("DROP TABLE channels_old");
+        db.run("DROP TABLE shows_old");
+        db.run("DROP TABLE movies_old");
+        
+        db.run("COMMIT", (err) => {
+          if (err) {
+            console.error('Migration failed, rolling back:', err);
+            db.run("ROLLBACK");
+          } else {
+            console.log('✓ Database migration completed successfully!');
+            console.log(`  All existing data migrated to admin user (ID: ${userId})`);
+          }
+        });
+      };
+      
+      // If no admin exists, create one first
+      if (!adminId) {
+        bcrypt.hash("admin123", SALT_ROUNDS, (err, hash) => {
+          if (err) {
+            console.error('Error hashing admin password:', err);
+            return;
+          }
+          db.run(
+            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
+            ["admin", "admin@m3u.studio", hash, "admin"],
+            function(err) {
+              if (err) {
+                console.error('Error creating admin user:', err);
+              } else {
+                console.log('Created admin user for migration');
+                completeMigration(this.lastID);
+              }
+            }
+          );
+        });
+      } else {
+        completeMigration(adminId);
+      }
+    });
+  });
+}
+
 // Create tables if they don't exist
 function initializeDatabase() {
   db.serialize(() => {
@@ -40,6 +168,22 @@ function initializeDatabase() {
         last_login DATETIME
       )
     `);
+
+    // Check if we need to migrate from old schema to new schema
+    db.get("PRAGMA table_info(settings)", [], (err, row) => {
+      if (!err && row) {
+        // Table exists, check if it has user_id column
+        db.all("PRAGMA table_info(settings)", [], (err, columns) => {
+          const hasUserId = columns && columns.some(col => col.name === 'user_id');
+          
+          if (!hasUserId) {
+            console.log("Migrating database schema to add user_id columns...");
+            migrateOldSchema();
+            return;
+          }
+        });
+      }
+    });
 
     // Settings table for key-value storage (now user-scoped)
     db.run(`
