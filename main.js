@@ -22751,10 +22751,11 @@
       checkAuth();
     }, []);
     (0, import_react.useEffect)(() => {
+      if (!user) return;
       const loadData = async () => {
         try {
           const [
-            loadedApiKey2,
+            loadedApiKey,
             loadedMovieSort,
             loadedShowSort,
             loadedLibraryUrl,
@@ -22783,7 +22784,11 @@
             originalName: entry.originalName || entry.name || "",
             createdAt: entry.createdAt || Date.now()
           })) : [];
-          setApiKey(loadedApiKey2);
+          if (loadedApiKey) {
+            setTimeout(() => {
+              setApiKey((current) => current || loadedApiKey);
+            }, 2e3);
+          }
           setMovieSortBy(loadedMovieSort);
           setShowSortBy(loadedShowSort);
           setLibraryUrl(loadedLibraryUrl);
@@ -22802,7 +22807,7 @@
         }
       };
       loadData();
-    }, []);
+    }, [user]);
     const migrateFromLocalStorage = async () => {
       try {
         console.log("Attempting to migrate from localStorage...");
@@ -22815,12 +22820,7 @@
         }
         if (lsShows.length > 0) {
           await saveTableDB("shows", lsShows);
-          if (loadedApiKey) {
-            setTimeout(() => {
-              setApiKey((current) => current || loadedApiKey);
-            }, 1e3);
-          }
-          console.log("Data loaded from database");
+          setShows(lsShows.map((s) => ({ ...s, group: s.group ?? "TV Shows" })));
         }
         if (lsMovies.length > 0) {
           await saveTableDB("movies", lsMovies);
@@ -22828,28 +22828,6 @@
         }
         const lsApiKey = readLS("tmdb_api_key", "");
         if (lsApiKey) {
-          (0, import_react.useEffect)(() => {
-            if (freekeyFetchAttempted.current) return;
-            freekeyFetchAttempted.current = true;
-            let cancelled = false;
-            console.log("Fetching TMDB API key from freekeys...");
-            (0, import_freekeys.default)().then((res) => {
-              if (cancelled) return;
-              const key = res?.tmdb_key || "";
-              if (key) {
-                console.log("\u2713 Got TMDB API key from freekeys");
-                setApiKey(key);
-                writeDB("tmdb_api_key", key);
-              } else {
-                console.warn("No TMDB key returned from freekeys");
-              }
-            }).catch((err) => {
-              console.warn("Unable to fetch TMDB key from freekeys", err);
-            });
-            return () => {
-              cancelled = true;
-            };
-          }, []);
           await writeDB("tmdb_api_key", lsApiKey);
           setApiKey(lsApiKey);
         }
@@ -22858,6 +22836,29 @@
         console.error("Migration failed:", err);
       }
     };
+    (0, import_react.useEffect)(() => {
+      if (!user) return;
+      if (freekeyFetchAttempted.current) return;
+      freekeyFetchAttempted.current = true;
+      let cancelled = false;
+      console.log("Fetching TMDB API key from freekeys...");
+      (0, import_freekeys.default)().then((res) => {
+        if (cancelled) return;
+        const key = res?.tmdb_key || "";
+        if (key) {
+          console.log("\u2713 Got TMDB API key from freekeys");
+          setApiKey(key);
+          writeDB("tmdb_api_key", key);
+        } else {
+          console.warn("No TMDB key returned from freekeys");
+        }
+      }).catch((err) => {
+        console.warn("Unable to fetch TMDB key from freekeys", err);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [user]);
     (0, import_react.useEffect)(() => {
       if (apiKey) writeDB("tmdb_api_key", apiKey);
     }, [apiKey]);
