@@ -588,7 +588,15 @@ function normalizeTitle(raw) {
 }
 
 function parseMediaName(filename, fullPath = "") {
-  const decoded = decodeURIComponent(filename);
+  // Safely decode URI - handle malformed sequences
+  let decoded;
+  try {
+    decoded = decodeURIComponent(filename);
+  } catch (err) {
+    // If decoding fails (e.g., malformed URI like "30%"), use raw filename
+    console.warn("Failed to decode URI:", filename, err);
+    decoded = filename;
+  }
   const noExt = decoded.replace(/\.[^/.]+$/, "");
   
   // Check for episode patterns first (before normalizing)

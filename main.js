@@ -22000,7 +22000,13 @@
     return cleaned.replace(/\s+/g, " ").trim();
   }
   function parseMediaName(filename, fullPath = "") {
-    const decoded = decodeURIComponent(filename);
+    let decoded;
+    try {
+      decoded = decodeURIComponent(filename);
+    } catch (err) {
+      console.warn("Failed to decode URI:", filename, err);
+      decoded = filename;
+    }
     const noExt = decoded.replace(/\.[^/.]+$/, "");
     const episodeRegex = /(?:^|\b)[Ss](\d{1,2})[^\d]{0,2}[Ee](\d{1,2})(?:\b|[^0-9])/;
     const seasonEpisodeAlt = /Season\s*(\d{1,2}).*Episode\s*(\d{1,2})/i;
