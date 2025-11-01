@@ -787,6 +787,11 @@ app.get("/epg.xml", (req, res) => {
   res.send(latestEpg);
 });
 
+// Serve player page
+app.get("/player", (req, res) => {
+  res.sendFile(path.join(__dirname, "player.html"));
+});
+
 app.listen(PORT, () => {
   console.log(`M3U Studio available on http://localhost:${PORT}`);
 });
