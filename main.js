@@ -22505,6 +22505,46 @@
       ))
     ))), users.length === 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-12" }, /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "No users found")));
   }
+  function VideoPlayer({ url, playerRef }) {
+    const videoRef = (0, import_react.useRef)(null);
+    (0, import_react.useEffect)(() => {
+      if (!videoRef.current || !url) return;
+      const player = window.videojs(videoRef.current, {
+        controls: true,
+        autoplay: false,
+        preload: "auto",
+        fluid: true,
+        responsive: true,
+        aspectRatio: "16:9",
+        html5: {
+          vhs: {
+            overrideNative: true
+          },
+          nativeVideoTracks: false,
+          nativeAudioTracks: false,
+          nativeTextTracks: false
+        }
+      });
+      player.src({
+        src: url,
+        type: url.includes(".m3u8") ? "application/x-mpegURL" : url.includes(".mpd") ? "application/dash+xml" : "video/mp4"
+      });
+      playerRef.current = player;
+      return () => {
+        if (player && !player.isDisposed()) {
+          player.dispose();
+        }
+      };
+    }, [url, playerRef]);
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "relative w-full", style: { paddingTop: "56.25%" } }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute inset-0" }, /* @__PURE__ */ import_react.default.createElement(
+      "video",
+      {
+        ref: videoRef,
+        className: "video-js vjs-big-play-centered vjs-theme-fantasy",
+        playsInline: true
+      }
+    )));
+  }
   function App() {
     const [user, setUser] = (0, import_react.useState)(null);
     const [authLoading, setAuthLoading] = (0, import_react.useState)(true);
@@ -22557,6 +22597,8 @@
     const [channelPreview, setChannelPreview] = (0, import_react.useState)(null);
     const channelImportInputRef = (0, import_react.useRef)(null);
     const replaceTargetImportIdRef = (0, import_react.useRef)(null);
+    const [playerState, setPlayerState] = (0, import_react.useState)(null);
+    const playerRef = (0, import_react.useRef)(null);
     const [shows, setShows] = (0, import_react.useState)([]);
     const [movies, setMovies] = (0, import_react.useState)([]);
     const [showSearchQuery, setShowSearchQuery] = (0, import_react.useState)("");
@@ -24500,14 +24542,22 @@ This will also remove ${channelImports.length} imported playlist record(s).`)) r
         },
         c.url,
         /* @__PURE__ */ import_react.default.createElement("svg", { className: "w-3 h-3", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24" }, /* @__PURE__ */ import_react.default.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" }))
-      ) : /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-500" }, "No stream URL")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-1 rounded-md text-xs font-medium bg-slate-800/60 text-slate-300" }, c.group || "Uncategorized")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle text-center" }, health ? /* @__PURE__ */ import_react.default.createElement("div", { className: "inline-flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: `text-lg ${health.status === "working" ? "text-green-400" : "text-red-400"}` }, health.status === "working" ? "\u2705" : "\u274C"), /* @__PURE__ */ import_react.default.createElement("span", { className: `text-xs ${health.status === "working" ? "text-green-300" : "text-red-300"}` }, health.status === "working" ? "Online" : "Offline")) : /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xs text-slate-500" }, "Not checked")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle text-right" }, /* @__PURE__ */ import_react.default.createElement(
+      ) : /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-500" }, "No stream URL")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-1 rounded-md text-xs font-medium bg-slate-800/60 text-slate-300" }, c.group || "Uncategorized")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle text-center" }, health ? /* @__PURE__ */ import_react.default.createElement("div", { className: "inline-flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: `text-lg ${health.status === "working" ? "text-green-400" : "text-red-400"}` }, health.status === "working" ? "\u2705" : "\u274C"), /* @__PURE__ */ import_react.default.createElement("span", { className: `text-xs ${health.status === "working" ? "text-green-300" : "text-red-300"}` }, health.status === "working" ? "Online" : "Offline")) : /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xs text-slate-500" }, "Not checked")), /* @__PURE__ */ import_react.default.createElement("td", { className: "px-4 py-3 align-middle text-right" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-end gap-2" }, c.url && /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          className: "text-xs font-medium px-3 py-1.5 rounded-lg text-aurora hover:bg-aurora/10 transition-all",
+          onClick: () => setPlayerState({ url: c.url, title: c.name || "Channel", type: "channel" }),
+          title: "Play stream"
+        },
+        "\u25B6\uFE0F Play"
+      ), /* @__PURE__ */ import_react.default.createElement(
         "button",
         {
           className: "text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all",
           onClick: () => removeChannel(idx)
         },
         "Remove"
-      )));
+      ))));
     }))))) : /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-12 text-slate-400" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F4FA}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-lg font-medium mb-2" }, "No channels yet"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm" }, "Import a playlist or add channels manually to get started."))), channels.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, { subtitle: "Edit channel details individually" }, "\u270F\uFE0F Channel Editor"), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, channels.map((c, idx) => {
       const searchLower = channelSearchQuery.toLowerCase();
       const matchesSearch = !searchLower || c.name?.toLowerCase().includes(searchLower) || c.url?.toLowerCase().includes(searchLower);
@@ -24876,6 +24926,14 @@ This cannot be undone!`)) {
         ), /* @__PURE__ */ import_react.default.createElement(
           "button",
           {
+            onClick: () => setPlayerState({ url: ep.url, title: `${show.name} S${season.season}E${ep.episode}${ep.title ? ": " + ep.title : ""}`, type: "episode" }),
+            className: "text-xs px-2 py-1 rounded bg-aurora/20 hover:bg-aurora/30 text-aurora border border-aurora/30 transition-colors",
+            title: "Play episode"
+          },
+          "\u25B6\uFE0F Play"
+        ), /* @__PURE__ */ import_react.default.createElement(
+          "button",
+          {
             onClick: () => {
               navigator.clipboard.writeText(ep.url);
               showToast("Stream URL copied!", "success");
@@ -25114,7 +25172,15 @@ This cannot be undone!`)) {
               },
               className: "mt-0.5 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50 flex-shrink-0"
             }
-          ), movie.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: movie.poster, alt: "", className: "w-12 h-16 rounded object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-12 h-16 rounded border border-dashed border-white/10 flex items-center justify-center text-xl flex-shrink-0" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-2 min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-bold text-white truncate" }, movie.title, movie.year && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-400 font-normal ml-1" }, "(", movie.year, ")")), isNew && /* @__PURE__ */ import_react.default.createElement("span", { className: "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-300 border border-green-500/30" }, "NEW")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-0.5 flex gap-2 flex-wrap items-center" }, movie.rating > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-yellow-400" }, "\u2B50 ", movie.rating.toFixed(1)), movie.runtime && /* @__PURE__ */ import_react.default.createElement("span", null, Math.floor(movie.runtime / 60), "h ", movie.runtime % 60, "m"), /* @__PURE__ */ import_react.default.createElement("span", { className: "truncate" }, "TMDB #", movie.tmdbId), /* @__PURE__ */ import_react.default.createElement("span", { className: movie.url ? "text-green-400" : "text-yellow-400" }, movie.url ? "\u{1F517}" : "\u26A0\uFE0F")), movie.genres && /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-1 mt-1 flex-wrap" }, movie.genres.split(", ").slice(0, 3).map((genre) => /* @__PURE__ */ import_react.default.createElement("span", { key: genre, className: "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30" }, genre)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-1" }, /* @__PURE__ */ import_react.default.createElement(
+          ), movie.poster ? /* @__PURE__ */ import_react.default.createElement("img", { src: movie.poster, alt: "", className: "w-12 h-16 rounded object-cover border border-white/10 flex-shrink-0" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-12 h-16 rounded border border-dashed border-white/10 flex items-center justify-center text-xl flex-shrink-0" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 space-y-2 min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-bold text-white truncate" }, movie.title, movie.year && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-400 font-normal ml-1" }, "(", movie.year, ")")), isNew && /* @__PURE__ */ import_react.default.createElement("span", { className: "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-500/20 text-green-300 border border-green-500/30" }, "NEW")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mt-0.5 flex gap-2 flex-wrap items-center" }, movie.rating > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-yellow-400" }, "\u2B50 ", movie.rating.toFixed(1)), movie.runtime && /* @__PURE__ */ import_react.default.createElement("span", null, Math.floor(movie.runtime / 60), "h ", movie.runtime % 60, "m"), /* @__PURE__ */ import_react.default.createElement("span", { className: "truncate" }, "TMDB #", movie.tmdbId), /* @__PURE__ */ import_react.default.createElement("span", { className: movie.url ? "text-green-400" : "text-yellow-400" }, movie.url ? "\u{1F517}" : "\u26A0\uFE0F")), movie.genres && /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-1 mt-1 flex-wrap" }, movie.genres.split(", ").slice(0, 3).map((genre) => /* @__PURE__ */ import_react.default.createElement("span", { key: genre, className: "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30" }, genre)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-1" }, movie.url && /* @__PURE__ */ import_react.default.createElement(
+            "button",
+            {
+              className: "text-xs px-2 py-1 rounded text-aurora hover:bg-aurora/10 transition-all flex-shrink-0",
+              onClick: () => setPlayerState({ url: movie.url, title: movie.title || "Movie", type: "movie" }),
+              title: "Play movie"
+            },
+            "\u25B6\uFE0F"
+          ), /* @__PURE__ */ import_react.default.createElement(
             "button",
             {
               className: "text-xs px-2 py-1 rounded text-blue-300 hover:bg-blue-500/20 transition-all flex-shrink-0",
@@ -25245,6 +25311,25 @@ This cannot be undone!`)) {
       channelPreview.selectedIds.size,
       " Channel",
       channelPreview.selectedIds.size !== 1 ? "s" : ""
+    )))), playerState && /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "bg-gradient-to-br from-slate-900 to-midnight border border-white/10 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between p-6 border-b border-white/10" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-2xl" }, playerState.type === "channel" ? "\u{1F4FA}" : playerState.type === "movie" ? "\u{1F3AC}" : "\u{1F4FA}"), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h2", { className: "text-xl font-bold text-white" }, playerState.title), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 capitalize" }, playerState.type))), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: () => {
+          if (playerRef.current) {
+            playerRef.current.dispose();
+            playerRef.current = null;
+          }
+          setPlayerState(null);
+        },
+        className: "text-slate-400 hover:text-white transition-colors text-2xl"
+      },
+      "\u2715"
+    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 p-6 overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement(
+      VideoPlayer,
+      {
+        url: playerState.url,
+        playerRef
+      }
     )))), /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed bottom-6 right-6 z-50 space-y-3 max-w-md" }, toasts.map((toast) => /* @__PURE__ */ import_react.default.createElement(
       "div",
       {

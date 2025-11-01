@@ -1268,6 +1268,60 @@ function UserManagement({ showToast }) {
   );
 }
 
+// ---------- Video Player Component ----------
+function VideoPlayer({ url, playerRef }) {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    if (!videoRef.current || !url) return;
+
+    // Initialize Video.js player
+    const player = window.videojs(videoRef.current, {
+      controls: true,
+      autoplay: false,
+      preload: 'auto',
+      fluid: true,
+      responsive: true,
+      aspectRatio: '16:9',
+      html5: {
+        vhs: {
+          overrideNative: true
+        },
+        nativeVideoTracks: false,
+        nativeAudioTracks: false,
+        nativeTextTracks: false
+      }
+    });
+
+    player.src({
+      src: url,
+      type: url.includes('.m3u8') ? 'application/x-mpegURL' 
+           : url.includes('.mpd') ? 'application/dash+xml'
+           : 'video/mp4'
+    });
+
+    playerRef.current = player;
+
+    return () => {
+      if (player && !player.isDisposed()) {
+        player.dispose();
+      }
+    };
+  }, [url, playerRef]);
+
+  return (
+    <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+      <div className="absolute inset-0">
+        <video
+          ref={videoRef}
+          className="video-js vjs-big-play-centered vjs-theme-fantasy"
+          playsInline
+        />
+      </div>
+    </div>
+  );
+}
+
 // ---------- Main App ----------
 export default function App() {
   // User authentication state
@@ -1334,6 +1388,8 @@ export default function App() {
   const [channelPreview, setChannelPreview] = useState(null); // { fileName, channels: [], selectedIds: Set(), targetImportId?: string }
   const channelImportInputRef = useRef(null);
   const replaceTargetImportIdRef = useRef(null);
+  const [playerState, setPlayerState] = useState(null); // { url, title, type } or null
+  const playerRef = useRef(null);
   const [shows, setShows] = useState([]);
   const [movies, setMovies] = useState([]);
   const [showSearchQuery, setShowSearchQuery] = useState("");
@@ -4246,12 +4302,23 @@ export default function App() {
                               )}
                             </td>
                             <td className="px-4 py-3 align-middle text-right">
-                              <button
-                                className="text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all"
-                                onClick={() => removeChannel(idx)}
-                              >
-                                Remove
-                              </button>
+                              <div className="flex items-center justify-end gap-2">
+                                {c.url && (
+                                  <button
+                                    className="text-xs font-medium px-3 py-1.5 rounded-lg text-aurora hover:bg-aurora/10 transition-all"
+                                    onClick={() => setPlayerState({ url: c.url, title: c.name || 'Channel', type: 'channel' })}
+                                    title="Play stream"
+                                  >
+                                    ▶️ Play
+                                  </button>
+                                )}
+                                <button
+                                  className="text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all"
+                                  onClick={() => removeChannel(idx)}
+                                >
+                                  Remove
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -5010,6 +5077,13 @@ export default function App() {
                                                   {ep.url}
                                                 </a>
                                                 <button
+                                                  onClick={() => setPlayerState({ url: ep.url, title: `${show.name} S${season.season}E${ep.episode}${ep.title ? ': ' + ep.title : ''}`, type: 'episode' })}
+                                                  className="text-xs px-2 py-1 rounded bg-aurora/20 hover:bg-aurora/30 text-aurora border border-aurora/30 transition-colors"
+                                                  title="Play episode"
+                                                >
+                                                  ▶️ Play
+                                                </button>
+                                                <button
                                                   onClick={() => {
                                                     navigator.clipboard.writeText(ep.url);
                                                     showToast("Stream URL copied!", "success");
@@ -5399,6 +5473,15 @@ export default function App() {
                                 )}
                               </div>
                               <div className="flex gap-1">
+                                {movie.url && (
+                                  <button
+                                    className="text-xs px-2 py-1 rounded text-aurora hover:bg-aurora/10 transition-all flex-shrink-0"
+                                    onClick={() => setPlayerState({ url: movie.url, title: movie.title || 'Movie', type: 'movie' })}
+                                    title="Play movie"
+                                  >
+                                    ▶️
+                                  </button>
+                                )}
                                 <button
                                   className="text-xs px-2 py-1 rounded text-blue-300 hover:bg-blue-500/20 transition-all flex-shrink-0"
                                   onClick={async () => {
@@ -5690,6 +5773,46 @@ export default function App() {
               >
                 Import {channelPreview.selectedIds.size} Channel{channelPreview.selectedIds.size !== 1 ? 's' : ''}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Video Player Modal */}
+      {playerState && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-gradient-to-br from-slate-900 to-midnight border border-white/10 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="text-2xl">
+                  {playerState.type === 'channel' ? '📺' : playerState.type === 'movie' ? '🎬' : '📺'}
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white">{playerState.title}</h2>
+                  <p className="text-sm text-slate-400 capitalize">{playerState.type}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (playerRef.current) {
+                    playerRef.current.dispose();
+                    playerRef.current = null;
+                  }
+                  setPlayerState(null);
+                }}
+                className="text-slate-400 hover:text-white transition-colors text-2xl"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* Video Player */}
+            <div className="flex-1 p-6 overflow-hidden">
+              <VideoPlayer
+                url={playerState.url}
+                playerRef={playerRef}
+              />
             </div>
           </div>
         </div>
