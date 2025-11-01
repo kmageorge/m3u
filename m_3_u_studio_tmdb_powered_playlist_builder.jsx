@@ -321,7 +321,32 @@ function fillPattern(pattern, season, episode) {
 // ---------- TMDB fetchers ----------
 async function fetchTMDBShow(apiKey, tmdbId) {
   const base = "https://api.themoviedb.org/3";
-  const show = await fetch(`${base}/tv/${tmdbId}?api_key=${apiKey}&language=en-US`).then(r => r.json());
+  const show = await fetch(`${base}/tv/${tmdbId}?api_key=${apiKey}&language=en-US&append_to_response=content_ratings,keywords,credits,external_ids`).then(r => r.json());
+  
+  // Extract content rating (US)
+  const usRating = (show.content_ratings?.results || []).find(r => r.iso_3166_1 === 'US');
+  const contentRating = usRating?.rating || '';
+  
+  // Extract keywords
+  const keywords = (show.keywords?.results || []).slice(0, 10).map(k => k.name).join(", ");
+  
+  // Extract creators and networks
+  const creators = (show.created_by || []).slice(0, 3).map(c => c.name).join(", ");
+  const networks = (show.networks || []).slice(0, 2).map(n => n.name).join(", ");
+  
+  // Extract cast
+  const cast = (show.credits?.cast || []).slice(0, 5).map(c => c.name).join(", ");
+  
+  // Language and country
+  const language = show.original_language?.toUpperCase() || '';
+  const country = (show.origin_country || [])[0] || '';
+  
+  // Episode runtime (average)
+  const episodeRunTime = (show.episode_run_time || [])[0] || null;
+  
+  // External IDs
+  const imdbId = show.external_ids?.imdb_id || '';
+  
   const seasons = await Promise.all(
     (show.seasons || []).map(async (s) => {
       const det = await fetch(`${base}/tv/${tmdbId}/season/${s.season_number}?api_key=${apiKey}&language=en-US`).then(r => r.json());
@@ -332,35 +357,95 @@ async function fetchTMDBShow(apiKey, tmdbId) {
       };
     })
   );
+  
   return {
     tmdbId,
     title: show.name,
     overview: show.overview || "",
     poster: show.poster_path ? `https://image.tmdb.org/t/p/w342${show.poster_path}` : "",
+    backdrop: show.backdrop_path ? `https://image.tmdb.org/t/p/w780${show.backdrop_path}` : "",
     firstAirDate: show.first_air_date || "",
+    lastAirDate: show.last_air_date || "",
     year: show.first_air_date ? new Date(show.first_air_date).getFullYear() : null,
     rating: show.vote_average || 0,
     genres: (show.genres || []).map(g => g.name).join(", "),
     status: show.status || "",
     numberOfSeasons: show.number_of_seasons || 0,
     numberOfEpisodes: show.number_of_episodes || 0,
+    contentRating,
+    keywords,
+    creators,
+    networks,
+    cast,
+    language,
+    country,
+    episodeRunTime,
+    voteCount: show.vote_count || 0,
+    popularity: show.popularity || 0,
+    inProduction: show.in_production || false,
+    type: show.type || '',
+    tagline: show.tagline || '',
+    homepage: show.homepage || '',
+    imdbId,
     seasons
   };
 }
 
 async function fetchTMDBMovie(apiKey, tmdbId) {
   const base = "https://api.themoviedb.org/3";
-  const m = await fetch(`${base}/movie/${tmdbId}?api_key=${apiKey}&language=en-US`).then(r => r.json());
+  const m = await fetch(`${base}/movie/${tmdbId}?api_key=${apiKey}&language=en-US&append_to_response=credits,keywords,release_dates,external_ids,videos`).then(r => r.json());
+  
+  // Extract certification (US rating)
+  const usRelease = (m.release_dates?.results || []).find(r => r.iso_3166_1 === 'US');
+  const certification = usRelease?.release_dates?.[0]?.certification || '';
+  
+  // Extract keywords
+  const keywords = (m.keywords?.keywords || []).slice(0, 10).map(k => k.name).join(", ");
+  
+  // Extract director and cast
+  const director = (m.credits?.crew || []).find(c => c.job === 'Director')?.name || '';
+  const cast = (m.credits?.cast || []).slice(0, 5).map(c => c.name).join(", ");
+  
+  // Extract production info
+  const productionCompanies = (m.production_companies || []).slice(0, 3).map(c => c.name).join(", ");
+  const language = m.original_language?.toUpperCase() || '';
+  const country = (m.production_countries || [])[0]?.iso_3166_1 || '';
+  
+  // Extract trailer URL
+  const trailer = (m.videos?.results || []).find(v => v.type === 'Trailer' && v.site === 'YouTube');
+  const trailerUrl = trailer ? `https://www.youtube.com/watch?v=${trailer.key}` : '';
+  
+  // External IDs
+  const imdbId = m.external_ids?.imdb_id || '';
+  
   return {
     tmdbId,
     title: m.title,
     overview: m.overview || "",
     poster: m.poster_path ? `https://image.tmdb.org/t/p/w342${m.poster_path}` : "",
+    backdrop: m.backdrop_path ? `https://image.tmdb.org/t/p/w780${m.backdrop_path}` : "",
     releaseDate: m.release_date || "",
     year: m.release_date ? new Date(m.release_date).getFullYear() : null,
     rating: m.vote_average || 0,
     genres: (m.genres || []).map(g => g.name).join(", "),
     runtime: m.runtime || null,
+    certification,
+    keywords,
+    director,
+    cast,
+    productionCompanies,
+    language,
+    country,
+    trailerUrl,
+    imdbId,
+    originalTitle: m.original_title || '',
+    budget: m.budget || 0,
+    revenue: m.revenue || 0,
+    voteCount: m.vote_count || 0,
+    popularity: m.popularity || 0,
+    status: m.status || '',
+    tagline: m.tagline || '',
+    homepage: m.homepage || ''
   };
 }
 
@@ -1220,6 +1305,8 @@ export default function App() {
   const [showSearchFilter, setShowSearchFilter] = useState("");
   const [movieSearchFilter, setMovieSearchFilter] = useState("");
   const [movieSortBy, setMovieSortBy] = useState(() => readLS("m3u_movie_sort", "added")); // added, title, year, rating
+  const [movieGroupBy, setMovieGroupBy] = useState(() => readLS("m3u_movie_group", "none")); // none, genre, year, group, certification
+  const [collapsedMovieGroups, setCollapsedMovieGroups] = useState(new Set());
   const [showSortBy, setShowSortBy] = useState(() => readLS("m3u_show_sort", "added")); // added, title, rating, year
   const [selectedChannels, setSelectedChannels] = useState(new Set());
   const [selectedShows, setSelectedShows] = useState(new Set());
@@ -1244,7 +1331,9 @@ export default function App() {
     message: ""
   });
   const [channelImports, setChannelImports] = useState([]);
+  const [channelPreview, setChannelPreview] = useState(null); // { fileName, channels: [], selectedIds: Set(), targetImportId?: string }
   const channelImportInputRef = useRef(null);
+  const replaceTargetImportIdRef = useRef(null);
   const [shows, setShows] = useState([]);
   const [movies, setMovies] = useState([]);
   const [showSearchQuery, setShowSearchQuery] = useState("");
@@ -1272,6 +1361,9 @@ export default function App() {
   const sortedChannelImports = useMemo(() => {
     return [...channelImports].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }, [channelImports]);
+  // Channels that will be exported (respect enabled playlists)
+  const enabledImportIds = useMemo(() => new Set(channelImports.filter(ci => ci.enabled !== false).map(ci => ci.id)), [channelImports]);
+  const filteredChannels = useMemo(() => channels.filter(ch => !ch.importId || enabledImportIds.has(ch.importId)), [channels, enabledImportIds]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryError, setLibraryError] = useState("");
   const [libraryMovies, setLibraryMovies] = useState([]);
@@ -1293,8 +1385,8 @@ export default function App() {
   const ghostButton = `${baseButton} border border-white/10 text-slate-300 bg-transparent focus:ring-aurora/30 hover:border-aurora/50 hover:text-aurora hover:bg-aurora/5`;
   const dangerButton = `${baseButton} border border-red-500/40 text-red-300 bg-red-500/10 focus:ring-red-400/50 hover:bg-red-500/20 hover:border-red-500/60`;
   const groupedShows = useMemo(() => coalesceShows(shows), [shows]);
-  const m3u = useMemo(() => buildM3U({ channels, shows: groupedShows, movies }), [channels, groupedShows, movies]);
-  const epg = useMemo(() => buildEPG({ channels, shows: groupedShows, movies, epgMappings }), [channels, groupedShows, movies, epgMappings]);
+  const m3u = useMemo(() => buildM3U({ channels: filteredChannels, shows: groupedShows, movies }), [filteredChannels, groupedShows, movies]);
+  const epg = useMemo(() => buildEPG({ channels: filteredChannels, shows: groupedShows, movies, epgMappings }), [filteredChannels, groupedShows, movies, epgMappings]);
 
   const libraryCandidates = useMemo(() => buildLibraryCandidates(libraryFileEntries), [libraryFileEntries]);
   // Live import helpers for library scanning
@@ -1565,7 +1657,8 @@ export default function App() {
           id: entry.id || `import-${Math.random().toString(36).slice(2)}`,
           name: entry.name || entry.originalName || "Imported playlist",
           originalName: entry.originalName || entry.name || "",
-          createdAt: entry.createdAt || Date.now()
+          createdAt: entry.createdAt || Date.now(),
+          enabled: entry.enabled !== false
         })) : [];
         
         // Set all state
@@ -1831,68 +1924,133 @@ export default function App() {
     try {
       body = await file.text();
     } catch {
-      setChannelImportStatus({ active: false, total: 0, added: 0, skipped: 0, message: "Unable to read that file." });
+      showToast("Unable to read that file.", "error");
       return;
     }
     const parsed = parseM3UChannels(body);
     if (!parsed.length) {
-      setChannelImportStatus({ active: false, total: 0, added: 0, skipped: 0, message: "No channels found in that file." });
+      showToast("No channels found in that file.", "error");
       return;
     }
+    
+    // Show preview modal with all channels for selection
+    const channelsWithIds = parsed.map((entry, idx) => ({
+      ...entry,
+      previewId: `preview-${idx}`,
+      name: entry.name || `Channel ${idx + 1}`,
+      url: entry.url || "",
+      logo: entry.logo || "",
+      group: entry.group || "Live",
+      chno: entry.chno || String(idx + 1)
+    }));
+    
+    setChannelPreview({
+      fileName: file.name || "Playlist",
+      channels: channelsWithIds,
+      selectedIds: new Set(channelsWithIds.map(c => c.previewId)), // All selected by default
+      targetImportId: replaceTargetImportIdRef.current || undefined
+    });
+    // Reset replace target after opening preview
+    replaceTargetImportIdRef.current = null;
+  };
+
+  const importSelectedChannels = async () => {
+    if (!channelPreview) return;
+    
+    const selectedChannels = channelPreview.channels.filter(c => 
+      channelPreview.selectedIds.has(c.previewId)
+    );
+    
+    if (selectedChannels.length === 0) {
+      showToast("No channels selected", "error");
+      return;
+    }
+    
     const existing = new Set(channels.map(c => (c.url || "").trim().toLowerCase()));
     const additions = [];
     const importTimestamp = Date.now();
-    const importId = `import-${importTimestamp}`;
-    const nameFromFile = file.name ? file.name.replace(/\.[^/.]+$/, "") : "";
-    const importName = nameFromFile || `Playlist ${channelImports.length + 1}`;
+  const isReplace = Boolean(channelPreview.targetImportId);
+  const importId = channelPreview.targetImportId || `import-${importTimestamp}`;
+  const nameFromFile = channelPreview.fileName.replace(/\.[^/.]+$/, "");
+  const importName = nameFromFile || `Playlist ${channelImports.length + 1}`;
     const createdAt = importTimestamp;
     let added = 0;
     let skipped = 0;
-    setChannelImportStatus({ active: true, total: parsed.length, added: 0, skipped: 0, message: "Importing channels…" });
-    for (const entry of parsed) {
+    
+    setChannelImportStatus({ 
+      active: true, 
+      total: selectedChannels.length, 
+      added: 0, 
+      skipped: 0, 
+      message: "Importing selected channels…" 
+    });
+    
+    for (const entry of selectedChannels) {
       const normalizedUrl = (entry.url || "").trim();
       if (!normalizedUrl) { skipped++; continue; }
       const urlKey = normalizedUrl.toLowerCase();
       if (existing.has(urlKey)) { skipped++; continue; }
       existing.add(urlKey);
+      
       let logo = entry.logo;
       if (!logo && entry.name) {
         const logos = await requestLogoSuggestions(entry.name, 1);
         logo = logos[0] || "";
       }
+      
       additions.push({
         id: `ch-${importTimestamp}-${added + 1}`,
         importId,
-        name: entry.name || `Channel ${channels.length + added + 1}`,
+        name: entry.name,
         url: normalizedUrl,
         logo,
-        group: entry.group || "Live",
-        chno: entry.chno || String(channels.length + added + 1)
+        group: entry.group,
+        chno: entry.chno
       });
       added++;
+      
       setChannelImportStatus(prev => ({
         ...prev,
         added,
         skipped,
-        message: `Imported ${added} of ${parsed.length}`
+        message: `Imported ${added} of ${selectedChannels.length}`
       }));
     }
+    
     if (additions.length) {
-      setChannels(prev => [...prev, ...additions]);
-      setChannelImports(prev => [...prev, {
-        id: importId,
-        name: importName,
-        originalName: file.name || "",
-        createdAt
-      }]);
+      if (isReplace) {
+        // Replace existing channels for this importId
+        setChannels(prev => {
+          const remaining = prev.filter(ch => ch.importId !== importId);
+          return [...remaining, ...additions];
+        });
+        setChannelImports(prev => prev.map(record => record.id === importId ? {
+          ...record,
+          originalName: channelPreview.fileName,
+          createdAt
+        } : record));
+      } else {
+        setChannels(prev => [...prev, ...additions]);
+        setChannelImports(prev => [...prev, {
+          id: importId,
+          name: importName,
+          originalName: channelPreview.fileName,
+          createdAt,
+          enabled: true
+        }]);
+      }
     }
+    
     setChannelImportStatus({
       active: false,
-      total: parsed.length,
+      total: selectedChannels.length,
       added,
       skipped,
       message: `Import complete. Added ${added}, skipped ${skipped}.`
     });
+    
+    setChannelPreview(null); // Close preview
+    showToast(`Imported ${added} channel${added !== 1 ? 's' : ''}`, "success");
   };
 
   const discoverFolders = async () => {
@@ -2243,9 +2401,16 @@ export default function App() {
   const renameChannelImport = (id, name) => {
     setChannelImports(prev => prev.map(record => (record.id === id ? { ...record, name } : record)));
   };
+  const updateChannelImport = (id, updates) => {
+    setChannelImports(prev => prev.map(record => (record.id === id ? { ...record, ...updates } : record)));
+  };
   const removeChannelImport = (id) => {
     setChannelImports(prev => prev.filter(record => record.id !== id));
     setChannels(cs => cs.filter(ch => ch.importId !== id));
+  };
+  const onReplaceImportClick = (id) => {
+    replaceTargetImportIdRef.current = id;
+    if (channelImportInputRef.current) channelImportInputRef.current.click();
   };
 
   // ----- EPG Management -----
@@ -2290,6 +2455,85 @@ export default function App() {
       });
       return newMappings;
     });
+  };
+
+  // ----- Admin bulk delete helpers -----
+  const deleteAllChannels = async () => {
+    if (channels.length === 0 && channelImports.length === 0) {
+      showToast("No channels to delete.", "info");
+      return;
+    }
+    if (!window.confirm(`⚠️ DELETE ALL ${channels.length} CHANNELS?\n\nThis will also remove ${channelImports.length} imported playlist record(s).`)) return;
+    if (!window.confirm("Are you absolutely sure? This cannot be undone.")) return;
+    try {
+      setChannels([]);
+      setChannelImports([]);
+      await saveTableDB("channels", []);
+      await writeDB("m3u_channel_imports", []);
+      showToast("All channels deleted.", "success");
+    } catch (e) {
+      console.warn(e);
+      showToast("Failed to delete channels.", "error");
+    }
+  };
+
+  const deleteAllShows = async () => {
+    if (shows.length === 0) {
+      showToast("No TV shows to delete.", "info");
+      return;
+    }
+    if (!window.confirm(`⚠️ DELETE ALL ${shows.length} TV SHOWS?`)) return;
+    if (!window.confirm("Are you absolutely sure? This cannot be undone.")) return;
+    try {
+      setShows([]);
+      await saveTableDB("shows", []);
+      showToast("All TV shows deleted.", "success");
+    } catch (e) {
+      console.warn(e);
+      showToast("Failed to delete shows.", "error");
+    }
+  };
+
+  const deleteAllMovies = async () => {
+    if (movies.length === 0) {
+      showToast("No movies to delete.", "info");
+      return;
+    }
+    if (!window.confirm(`⚠️ DELETE ALL ${movies.length} MOVIES?`)) return;
+    if (!window.confirm("Are you absolutely sure? This cannot be undone.")) return;
+    try {
+      setMovies([]);
+      await saveTableDB("movies", []);
+      showToast("All movies deleted.", "success");
+    } catch (e) {
+      console.warn(e);
+      showToast("Failed to delete movies.", "error");
+    }
+  };
+
+  const deleteEverything = async () => {
+    if (channels.length === 0 && shows.length === 0 && movies.length === 0) {
+      showToast("Nothing to delete.", "info");
+      return;
+    }
+    if (!window.confirm("⚠️ DELETE EVERYTHING (Channels + Shows + Movies)?")) return;
+    if (!window.confirm("Final confirmation: This will permanently remove all channels, shows, movies, and playlist records.")) return;
+    try {
+      setChannels([]);
+      setShows([]);
+      setMovies([]);
+      setChannelImports([]);
+      await Promise.all([
+        saveTableDB("channels", []),
+        saveTableDB("shows", []),
+        saveTableDB("movies", []),
+        writeDB("m3u_channel_imports", [])
+      ]);
+      showToast("All library content deleted.", "success");
+    } catch (e) {
+      console.warn(e);
+      showToast("Failed to delete everything.", "error");
+    }
   };
 
   const setChannelEpgMapping = (channelId, epgChannelId, epgSourceId) => {
@@ -2388,9 +2632,31 @@ export default function App() {
         title: s.title,
         overview: s.overview,
         poster: s.poster,
+        backdrop: s.backdrop,
         seasons,
         pattern: customPattern,
-        group: customGroup || "TV Shows"
+        group: customGroup || "TV Shows",
+        // Additional metadata from TMDB
+        year: s.year,
+        rating: s.rating,
+        genres: s.genres,
+        status: s.status,
+        contentRating: s.contentRating,
+        keywords: s.keywords,
+        creators: s.creators,
+        networks: s.networks,
+        cast: s.cast,
+        language: s.language,
+        country: s.country,
+        episodeRunTime: s.episodeRunTime,
+        voteCount: s.voteCount,
+        popularity: s.popularity,
+        lastAirDate: s.lastAirDate,
+        inProduction: s.inProduction,
+        type: s.type,
+        tagline: s.tagline,
+        homepage: s.homepage,
+        imdbId: s.imdbId
       }
     ]);
   };
@@ -2408,6 +2674,65 @@ export default function App() {
     }
     
     setShows(ss => ss.map(s => s.id === id ? { ...s, ...patch } : s));
+  };
+
+  const refreshShowMetadata = async (showId) => {
+    if (!apiKey) return showToast("Add your TMDB API key first", "error");
+    const show = shows.find(s => s.id === showId);
+    if (!show || !show.tmdbId) return showToast("Show not found or missing TMDB ID", "error");
+    
+    try {
+      const s = await fetchTMDBShow(apiKey, show.tmdbId);
+      setShows(ss => ss.map(sh => sh.id === showId ? {
+        ...sh,
+        title: s.title,
+        overview: s.overview,
+        poster: s.poster,
+        backdrop: s.backdrop,
+        year: s.year,
+        rating: s.rating,
+        genres: s.genres,
+        status: s.status,
+        contentRating: s.contentRating,
+        keywords: s.keywords,
+        creators: s.creators,
+        networks: s.networks,
+        cast: s.cast,
+        language: s.language,
+        country: s.country,
+        episodeRunTime: s.episodeRunTime,
+        voteCount: s.voteCount,
+        popularity: s.popularity,
+        lastAirDate: s.lastAirDate,
+        inProduction: s.inProduction,
+        type: s.type,
+        tagline: s.tagline,
+        homepage: s.homepage,
+        imdbId: s.imdbId,
+        numberOfSeasons: s.numberOfSeasons,
+        numberOfEpisodes: s.numberOfEpisodes,
+        seasons: s.seasons
+      } : sh));
+      showToast(`Metadata refreshed for "${show.title}"`, "success");
+    } catch (err) {
+      showToast("Failed to refresh metadata: " + err.message, "error");
+    }
+  };
+
+  const refreshBulkShowMetadata = async (showIds) => {
+    if (!apiKey) return showToast("Add your TMDB API key first", "error");
+    showToast(`Refreshing metadata for ${showIds.length} show${showIds.length > 1 ? 's' : ''}...`, "info");
+    
+    let refreshed = 0;
+    for (const showId of showIds) {
+      try {
+        await refreshShowMetadata(showId);
+        refreshed++;
+      } catch (err) {
+        console.error(`Failed to refresh show ${showId}:`, err);
+      }
+    }
+    showToast(`Refreshed ${refreshed} of ${showIds.length} shows`, "success");
   };
 
   const guessPattern = (id, samples) => {
@@ -2439,8 +2764,31 @@ export default function App() {
         title: m.title,
         overview: m.overview,
         poster: m.poster,
+        backdrop: m.backdrop,
         url: options.url || "",
-        group: options.group || "Movies"
+        group: options.group || "Movies",
+        // Additional metadata from TMDB
+        year: m.year,
+        rating: m.rating,
+        runtime: m.runtime,
+        genres: m.genres,
+        certification: m.certification,
+        director: m.director,
+        cast: m.cast,
+        keywords: m.keywords,
+        productionCompanies: m.productionCompanies,
+        language: m.language,
+        country: m.country,
+        trailerUrl: m.trailerUrl,
+        imdbId: m.imdbId,
+        originalTitle: m.originalTitle,
+        budget: m.budget,
+        revenue: m.revenue,
+        voteCount: m.voteCount,
+        popularity: m.popularity,
+        status: m.status,
+        tagline: m.tagline,
+        homepage: m.homepage
       }
     ]);
   };
@@ -2462,6 +2810,63 @@ export default function App() {
     }
     
     setMovies(ms => ms.map(m => m.id === id ? { ...m, ...patch } : m));
+  };
+
+  const refreshMovieMetadata = async (movieId) => {
+    if (!apiKey) return showToast("Add your TMDB API key first", "error");
+    const movie = movies.find(m => m.id === movieId);
+    if (!movie || !movie.tmdbId) return showToast("Movie not found or missing TMDB ID", "error");
+    
+    try {
+      const m = await fetchTMDBMovie(apiKey, movie.tmdbId);
+      setMovies(ms => ms.map(mov => mov.id === movieId ? {
+        ...mov,
+        title: m.title,
+        overview: m.overview,
+        poster: m.poster,
+        backdrop: m.backdrop,
+        year: m.year,
+        rating: m.rating,
+        runtime: m.runtime,
+        genres: m.genres,
+        certification: m.certification,
+        director: m.director,
+        cast: m.cast,
+        keywords: m.keywords,
+        productionCompanies: m.productionCompanies,
+        language: m.language,
+        country: m.country,
+        trailerUrl: m.trailerUrl,
+        imdbId: m.imdbId,
+        originalTitle: m.originalTitle,
+        budget: m.budget,
+        revenue: m.revenue,
+        voteCount: m.voteCount,
+        popularity: m.popularity,
+        status: m.status,
+        tagline: m.tagline,
+        homepage: m.homepage
+      } : mov));
+      showToast(`Metadata refreshed for "${movie.title}"`, "success");
+    } catch (err) {
+      showToast("Failed to refresh metadata: " + err.message, "error");
+    }
+  };
+
+  const refreshBulkMovieMetadata = async (movieIds) => {
+    if (!apiKey) return showToast("Add your TMDB API key first", "error");
+    showToast(`Refreshing metadata for ${movieIds.length} movie${movieIds.length > 1 ? 's' : ''}...`, "info");
+    
+    let refreshed = 0;
+    for (const movieId of movieIds) {
+      try {
+        await refreshMovieMetadata(movieId);
+        refreshed++;
+      } catch (err) {
+        console.error(`Failed to refresh movie ${movieId}:`, err);
+      }
+    }
+    showToast(`Refreshed ${refreshed} of ${movieIds.length} movies`, "success");
   };
 
   // ----- Backup/Restore -----
@@ -2892,6 +3297,11 @@ export default function App() {
             <TabBtn icon="📋" active={active === "playlist"} onClick={()=>setActive("playlist")}>
               Export
             </TabBtn>
+            {user?.role === "admin" && (
+              <TabBtn icon="⚙️" active={active === "settings"} onClick={()=>setActive("settings")}>
+                Settings
+              </TabBtn>
+            )}
           </nav>
         </div>
       </header>
@@ -3662,23 +4072,43 @@ export default function App() {
                                 }}
                               />
                             </div>
-                            <div className="text-xs text-slate-500 flex flex-wrap gap-3">
+                            <div className="text-xs text-slate-500 flex flex-wrap gap-3 items-center">
                               <span>{channelCount} channel{channelCount === 1 ? "" : "s"}</span>
+                              <span className={imp.enabled !== false ? "text-green-400" : "text-slate-500"}>
+                                {imp.enabled !== false ? "✓ Active" : "○ Disabled"}
+                              </span>
                               {imp.originalName ? <span>File: {imp.originalName}</span> : null}
                               {importDate ? <span>Imported: {importDate}</span> : null}
                             </div>
                           </div>
                           <div className="flex flex-col gap-2 lg:items-end">
-                            <button
-                              className={dangerButton}
-                              onClick={()=>{
-                                if (window.confirm(`Delete "${imp.name || imp.originalName || "this playlist"}"? This removes ${channelCount} channel${channelCount === 1 ? "" : "s"}.`)) {
-                                  removeChannelImport(imp.id);
-                                }
-                              }}
-                            >
-                              Delete playlist
-                            </button>
+                            <div className="flex items-center gap-3">
+                              <label className="text-xs font-semibold text-slate-400">Enabled</label>
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+                                checked={imp.enabled !== false}
+                                onChange={(e)=>updateChannelImport(imp.id, { enabled: e.target.checked })}
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                className={secondaryButton}
+                                onClick={() => onReplaceImportClick(imp.id)}
+                              >
+                                Replace file
+                              </button>
+                              <button
+                                className={dangerButton}
+                                onClick={()=>{
+                                  if (window.confirm(`Delete "${imp.name || imp.originalName || "this playlist"}"? This removes ${channelCount} channel${channelCount === 1 ? "" : "s"}.`)) {
+                                    removeChannelImport(imp.id);
+                                  }
+                                }}
+                              >
+                                Delete playlist
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -4259,7 +4689,33 @@ export default function App() {
                     <SectionTitle>📺 Your TV Shows</SectionTitle>
                     <p className="text-sm text-slate-400 mt-1">{groupedShows.length} series in your library</p>
                   </div>
-                  <div className="flex gap-2 items-center">
+                  <div className="flex gap-2 items-center flex-wrap">
+                    <button
+                      className={secondaryButton}
+                      onClick={async () => {
+                        if (window.confirm(`Refresh metadata for all ${shows.length} shows? This may take a while.`)) {
+                          await refreshBulkShowMetadata(shows.map(s => s.id));
+                        }
+                      }}
+                      disabled={shows.length === 0 || !apiKey}
+                    >
+                      🔄 Refresh All Metadata
+                    </button>
+                    <button
+                      className={dangerButton}
+                      onClick={() => {
+                        if (window.confirm(`⚠️ DELETE ALL ${shows.length} TV SHOWS?\n\nThis cannot be undone!`)) {
+                          if (window.confirm(`Are you absolutely sure? This will permanently delete all ${shows.length} TV shows from your library.`)) {
+                            setShows([]);
+                            setSelectedShows(new Set());
+                            showToast("All TV shows deleted", "success");
+                          }
+                        }
+                      }}
+                      disabled={shows.length === 0}
+                    >
+                      🗑️ Delete All Shows
+                    </button>
                     <select
                       className={`${inputClass} w-40 py-2`}
                       value={showSortBy}
@@ -4277,6 +4733,17 @@ export default function App() {
                       value={showSearchFilter}
                       onChange={(e) => setShowSearchFilter(e.target.value)}
                     />
+                    {selectedShows.size > 0 && (
+                      <button
+                        className={secondaryButton}
+                        onClick={async () => {
+                          const showIds = shows.filter(s => selectedShows.has(getShowGroupKey(s))).map(s => s.id);
+                          await refreshBulkShowMetadata(showIds);
+                        }}
+                      >
+                        🔄 Refresh Metadata ({selectedShows.size})
+                      </button>
+                    )}
                     {selectedShows.size > 0 && (
                       <button
                         className={dangerButton}
@@ -4696,7 +5163,49 @@ export default function App() {
                     <SectionTitle>🎬 Your Movies</SectionTitle>
                     <p className="text-sm text-slate-400 mt-1">{movies.length} films in your library</p>
                   </div>
-                  <div className="flex gap-2 items-center">
+                  <div className="flex gap-2 items-center flex-wrap">
+                    <button
+                      className={secondaryButton}
+                      onClick={async () => {
+                        if (window.confirm(`Refresh metadata for all ${movies.length} movies? This may take a while.`)) {
+                          await refreshBulkMovieMetadata(movies.map(m => m.id));
+                        }
+                      }}
+                      disabled={movies.length === 0 || !apiKey}
+                    >
+                      🔄 Refresh All Metadata
+                    </button>
+                    <button
+                      className={dangerButton}
+                      onClick={() => {
+                        if (window.confirm(`⚠️ DELETE ALL ${movies.length} MOVIES?\n\nThis cannot be undone!`)) {
+                          if (window.confirm(`Are you absolutely sure? This will permanently delete all ${movies.length} movies from your library.`)) {
+                            setMovies([]);
+                            setSelectedMovies(new Set());
+                            showToast("All movies deleted", "success");
+                          }
+                        }
+                      }}
+                      disabled={movies.length === 0}
+                    >
+                      🗑️ Delete All Movies
+                    </button>
+                    <select
+                      className={`${inputClass} w-40 py-2`}
+                      value={movieGroupBy}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setMovieGroupBy(val);
+                        writeLS("m3u_movie_group", val);
+                        setCollapsedMovieGroups(new Set());
+                      }}
+                    >
+                      <option value="none">No Grouping</option>
+                      <option value="genre">Group by Genre</option>
+                      <option value="year">Group by Year</option>
+                      <option value="group">Group by Category</option>
+                      <option value="certification">Group by Rating</option>
+                    </select>
                     <select
                       className={`${inputClass} w-40 py-2`}
                       value={movieSortBy}
@@ -4716,6 +5225,16 @@ export default function App() {
                     />
                     {selectedMovies.size > 0 && (
                       <button
+                        className={secondaryButton}
+                        onClick={async () => {
+                          await refreshBulkMovieMetadata(Array.from(selectedMovies));
+                        }}
+                      >
+                        🔄 Refresh Metadata ({selectedMovies.size})
+                      </button>
+                    )}
+                    {selectedMovies.size > 0 && (
+                      <button
                         className={dangerButton}
                         onClick={() => {
                           if (window.confirm(`Delete ${selectedMovies.size} selected movie${selectedMovies.size > 1 ? 's' : ''}?`)) {
@@ -4730,31 +5249,95 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  {movies.filter(m => {
-                    if (!movieSearchFilter.trim()) return true;
-                    const search = movieSearchFilter.toLowerCase();
-                    return m.title?.toLowerCase().includes(search) || 
-                           m.genres?.toLowerCase().includes(search) ||
-                           m.year?.toString().includes(search);
-                  })
-                  .sort((a, b) => {
-                    switch(movieSortBy) {
-                      case "title":
-                        return (a.title || "").localeCompare(b.title || "");
-                      case "year":
-                        return (b.year || 0) - (a.year || 0);
-                      case "rating":
-                        return (b.rating || 0) - (a.rating || 0);
-                      case "added":
-                      default:
-                        // Most recently added first (reverse ID order)
-                        return b.id.localeCompare(a.id);
+                <div className="space-y-4">
+                  {(() => {
+                    // Filter and sort movies
+                    const filtered = movies.filter(m => {
+                      if (!movieSearchFilter.trim()) return true;
+                      const search = movieSearchFilter.toLowerCase();
+                      return m.title?.toLowerCase().includes(search) || 
+                             m.genres?.toLowerCase().includes(search) ||
+                             m.year?.toString().includes(search);
+                    })
+                    .sort((a, b) => {
+                      switch(movieSortBy) {
+                        case "title":
+                          return (a.title || "").localeCompare(b.title || "");
+                        case "year":
+                          return (b.year || 0) - (a.year || 0);
+                        case "rating":
+                          return (b.rating || 0) - (a.rating || 0);
+                        case "added":
+                        default:
+                          return b.id.localeCompare(a.id);
+                      }
+                    });
+
+                    // Group movies
+                    const grouped = {};
+                    if (movieGroupBy === 'none') {
+                      grouped['__all__'] = filtered;
+                    } else {
+                      filtered.forEach(movie => {
+                        let keys = [];
+                        if (movieGroupBy === 'genre') {
+                          const genres = (movie.genres || '').split(', ').filter(g => g);
+                          keys = genres.length > 0 ? genres : ['Uncategorized'];
+                        } else if (movieGroupBy === 'year') {
+                          keys = [movie.year ? String(movie.year) : 'Unknown Year'];
+                        } else if (movieGroupBy === 'group') {
+                          keys = [movie.group || 'Uncategorized'];
+                        } else if (movieGroupBy === 'certification') {
+                          keys = [movie.certification || 'Not Rated'];
+                        }
+                        keys.forEach(key => {
+                          if (!grouped[key]) grouped[key] = [];
+                          grouped[key].push(movie);
+                        });
+                      });
                     }
-                  })
-                  .map((movie, idx) => {
-                    const isNew = idx < 5 && movieSortBy === "added"; // Mark first 5 as new when sorted by added
-                    return (
+
+                    // Sort group keys
+                    const groupKeys = Object.keys(grouped).sort((a, b) => {
+                      if (a === '__all__') return -1;
+                      if (b === '__all__') return 1;
+                      if (movieGroupBy === 'year') {
+                        const aNum = parseInt(a);
+                        const bNum = parseInt(b);
+                        if (!isNaN(aNum) && !isNaN(bNum)) return bNum - aNum;
+                      }
+                      return a.localeCompare(b);
+                    });
+
+                    // Render groups
+                    return groupKeys.map(groupName => {
+                      const groupMovies = grouped[groupName];
+                      const isCollapsed = collapsedMovieGroups.has(groupName);
+                      const showGroupHeader = movieGroupBy !== 'none';
+
+                      return (
+                        <div key={groupName} className="space-y-2">
+                          {showGroupHeader && (
+                            <div
+                              className="flex items-center justify-between p-3 rounded-lg bg-slate-800/60 border border-white/10 cursor-pointer hover:border-aurora/30 transition-all"
+                              onClick={() => {
+                                const newCollapsed = new Set(collapsedMovieGroups);
+                                if (isCollapsed) newCollapsed.delete(groupName);
+                                else newCollapsed.add(groupName);
+                                setCollapsedMovieGroups(newCollapsed);
+                              }}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="text-lg">{isCollapsed ? '▶️' : '🔽'}</span>
+                                <span className="font-semibold text-white">{groupName}</span>
+                                <span className="text-xs text-slate-400">({groupMovies.length} movie{groupMovies.length !== 1 ? 's' : ''})</span>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {!isCollapsed && groupMovies.map((movie, idx) => {
+                            const isNew = movieGroupBy === 'none' && idx < 5 && movieSortBy === "added";
+                            return (
                     <div key={movie.id} className="rounded-lg border border-white/10 bg-slate-800/40 p-3 hover:border-aurora/30 transition-all">
                       <div className="flex gap-3">
                         <input
@@ -4815,16 +5398,27 @@ export default function App() {
                                   </div>
                                 )}
                               </div>
-                              <button
-                                className="text-xs px-2 py-1 rounded text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0"
-                                onClick={() => {
-                                  if (window.confirm(`Delete "${movie.title}"?`)) {
-                                    setMovies(ms => ms.filter(m => m.id !== movie.id));
-                                  }
-                                }}
-                              >
-                                🗑️
-                              </button>
+                              <div className="flex gap-1">
+                                <button
+                                  className="text-xs px-2 py-1 rounded text-blue-300 hover:bg-blue-500/20 transition-all flex-shrink-0"
+                                  onClick={async () => {
+                                    await refreshMovieMetadata(movie.id);
+                                  }}
+                                  title="Refresh metadata from TMDB"
+                                >
+                                  🔄
+                                </button>
+                                <button
+                                  className="text-xs px-2 py-1 rounded text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0"
+                                  onClick={() => {
+                                    if (window.confirm(`Delete "${movie.title}"?`)) {
+                                      setMovies(ms => ms.filter(m => m.id !== movie.id));
+                                    }
+                                  }}
+                                >
+                                  🗑️
+                                </button>
+                              </div>
                             </div>
                             
                             {movie.overview && (
@@ -4885,6 +5479,10 @@ export default function App() {
                     </div>
                     );
                   })}
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </Card>
             )}
@@ -4906,6 +5504,35 @@ export default function App() {
             <Card>
               <SectionTitle>User Management</SectionTitle>
               <UserManagement showToast={showToast} />
+            </Card>
+          </div>
+        )}
+
+        {active === "settings" && user?.role === "admin" && (
+          <div className="space-y-6">
+            <Card>
+              <SectionTitle subtitle="Danger zone – irreversible actions">⚙️ Admin Settings</SectionTitle>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                <div className="rounded-xl border border-white/10 bg-red-500/5 p-4">
+                  <div className="text-sm font-semibold text-white mb-2">Bulk Delete</div>
+                  <p className="text-xs text-slate-400 mb-3">These actions permanently remove items from your library.</p>
+                  <div className="flex flex-col gap-2">
+                    <button className={dangerButton} onClick={deleteAllChannels}>
+                      🗑️ Delete All Channels ({channels.length})
+                    </button>
+                    <button className={dangerButton} onClick={deleteAllShows}>
+                      🗑️ Delete All TV Shows ({shows.length})
+                    </button>
+                    <button className={dangerButton} onClick={deleteAllMovies}>
+                      🗑️ Delete All Movies ({movies.length})
+                    </button>
+                    <div className="h-px bg-white/10 my-2" />
+                    <button className={`${dangerButton} border-2 border-red-500/60`} onClick={deleteEverything}>
+                      ☢️ Delete EVERYTHING ({channels.length} channels · {shows.length} shows · {movies.length} movies)
+                    </button>
+                  </div>
+                </div>
+              </div>
             </Card>
           </div>
         )}
@@ -4953,6 +5580,120 @@ export default function App() {
       </main>
 
       <footer className="py-12 text-center text-xs text-slate-500/80">Built with ❤️ – Local-only demo. Add auth & backend before shipping.</footer>
+      
+      {/* Channel Import Preview Modal */}
+      {channelPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-900 rounded-2xl shadow-2xl border border-white/10 w-full max-w-4xl max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="p-6 border-b border-white/10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">Import Channels</h2>
+                  <p className="text-sm text-slate-400 mt-1">
+                    {channelPreview.fileName} • {channelPreview.channels.length} channels found
+                  </p>
+                </div>
+                <button
+                  onClick={() => setChannelPreview(null)}
+                  className="text-slate-400 hover:text-white transition-colors text-2xl"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              {/* Selection Controls */}
+              <div className="flex gap-2 mt-4">
+                <button
+                  className={secondaryButton}
+                  onClick={() => setChannelPreview(prev => ({
+                    ...prev,
+                    selectedIds: new Set(prev.channels.map(c => c.previewId))
+                  }))}
+                >
+                  ✓ Select All
+                </button>
+                <button
+                  className={secondaryButton}
+                  onClick={() => setChannelPreview(prev => ({
+                    ...prev,
+                    selectedIds: new Set()
+                  }))}
+                >
+                  ✗ Deselect All
+                </button>
+                <div className="flex-1"></div>
+                <div className="text-sm text-slate-400 flex items-center">
+                  {channelPreview.selectedIds.size} selected
+                </div>
+              </div>
+            </div>
+            
+            {/* Channel List */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-2">
+              {channelPreview.channels.map(channel => (
+                <div
+                  key={channel.previewId}
+                  className={`flex items-center gap-3 p-3 rounded-lg border transition-all cursor-pointer ${
+                    channelPreview.selectedIds.has(channel.previewId)
+                      ? 'bg-aurora/10 border-aurora/30'
+                      : 'bg-slate-800/40 border-white/10 hover:border-white/20'
+                  }`}
+                  onClick={() => {
+                    setChannelPreview(prev => {
+                      const newSelected = new Set(prev.selectedIds);
+                      if (newSelected.has(channel.previewId)) {
+                        newSelected.delete(channel.previewId);
+                      } else {
+                        newSelected.add(channel.previewId);
+                      }
+                      return { ...prev, selectedIds: newSelected };
+                    });
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={channelPreview.selectedIds.has(channel.previewId)}
+                    onChange={() => {}}
+                    className="rounded border-white/20 bg-slate-800/60 text-aurora focus:ring-aurora/50"
+                  />
+                  {channel.logo ? (
+                    <img src={channel.logo} alt="" className="w-10 h-10 rounded object-cover border border-white/10" />
+                  ) : (
+                    <div className="w-10 h-10 rounded border border-dashed border-white/10 flex items-center justify-center text-lg">
+                      📺
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-white truncate">{channel.name}</div>
+                    <div className="text-xs text-slate-400 flex gap-2">
+                      {channel.group && <span>📁 {channel.group}</span>}
+                      {channel.chno && <span>#{channel.chno}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            {/* Footer */}
+            <div className="p-6 border-t border-white/10 flex gap-3 justify-end">
+              <button
+                className={ghostButton}
+                onClick={() => setChannelPreview(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className={primaryButton}
+                onClick={importSelectedChannels}
+                disabled={channelPreview.selectedIds.size === 0}
+              >
+                Import {channelPreview.selectedIds.size} Channel{channelPreview.selectedIds.size !== 1 ? 's' : ''}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Toast Notifications */}
       <div className="fixed bottom-6 right-6 z-50 space-y-3 max-w-md">
