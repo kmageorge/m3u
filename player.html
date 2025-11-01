@@ -152,6 +152,32 @@
       );
     }
 
+    // Helpers for show/episode titles
+    function stripShowName(title, showName) {
+      try {
+        if (!title) return "";
+        let t = String(title).trim();
+        const s = (showName || "").trim();
+        if (!s) return t;
+        const lower = t.toLowerCase();
+        const sLower = s.toLowerCase();
+        if (lower.startsWith(sLower)) {
+          let rest = t.slice(s.length);
+          // remove leading separators like ":", "-", "–", "—" and surrounding spaces
+          rest = rest.replace(/^\s*[:\-–—]\s*/, "");
+          return rest.trim();
+        }
+        return t;
+      } catch {
+        return title || "";
+      }
+    }
+
+    function getEpisodeTitle(show, ep) {
+      const cleaned = stripShowName(ep?.title || "", show?.name || "");
+      return cleaned || `Episode ${ep?.episode ?? ""}`;
+    }
+
     // Main Player App
     function PlayerApp() {
       const [user, setUser] = useState(null);
@@ -714,7 +740,7 @@
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-2">
-                                <h4 className="text-sm font-semibold text-white truncate">{ep.title || `Episode ${ep.episode}`}</h4>
+                                <h4 className="text-sm font-semibold text-white truncate">{getEpisodeTitle(selectedShow, ep)}</h4>
                                 <button className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-600/20 group-hover:bg-purple-600 text-purple-300 group-hover:text-white flex items-center justify-center transition-all">▶️</button>
                               </div>
                               {ep.overview && (
