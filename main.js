@@ -21722,6 +21722,7 @@
   }
   var VIDEO_EXTS = [".mp4", ".mkv", ".m3u8", ".avi", ".mov", ".ts", ".flv", ".wmv"];
   var QUALITY_TAGS = [
+    // Source/quality
     "dvdrip",
     "brrip",
     "hdrip",
@@ -21731,6 +21732,7 @@
     "webrip",
     "webdl",
     "web-dl",
+    "web",
     "hdtv",
     "cam",
     "ts",
@@ -21739,25 +21741,51 @@
     "uhd",
     "4k",
     "2160p",
+    "1440p",
     "1080p",
+    "1080i",
     "720p",
+    "720i",
+    "576p",
+    "540p",
     "480p",
+    "360p",
+    "240p",
+    // Codecs
     "xvid",
     "x264",
     "x265",
+    "h264",
+    "h265",
     "hevc",
+    // Audio
     "aac",
+    "ac3",
+    "eac3",
+    "dd",
+    "ddp",
     "dts",
+    "dts-hd",
+    "truehd",
+    "atmos",
+    "mp3",
+    "flac",
     "dolby",
+    // Other tags
     "hdr",
+    "hdr10",
+    "dv",
+    "dolby vision",
     "proper",
     "repack",
+    "remux",
     "uncut",
     "extended",
     "imax",
     "remastered",
     "multi",
     "subs",
+    "subbed",
     "dubbed",
     "dual",
     "rip"
@@ -21904,6 +21932,7 @@
   function normalizeTitle(raw) {
     let cleaned = raw.replace(/[_\.]+/g, " ").replace(/\s*(\(|\[).*?(DIVX|1080p|720p|480p|2160p|4K|x264|x265|h264|h265|HEVC|BluRay|BRRip|WEBRip|WEB-DL|HDR|HDRip|DVDRip|CAM|TS).*(\)|\])\s*/gi, " ").replace(/[\[\(]?[A-Z0-9]+[\]\)]?\s*$/i, " ").replace(/\s*-\s*/g, " ").replace(/\s+/g, " ");
     cleaned = cleaned.replace(QUALITY_REGEX, " ");
+    cleaned = cleaned.replace(/\b(5\.1|7\.1|2\.0|1\.0)\b/gi, " ").replace(/\b(dd|ddp|ac3|eac3|dts(?:-?hd)?|truehd|atmos)\b/gi, " ").replace(/\b(remux|proper|repack)\b/gi, " ");
     cleaned = cleaned.replace(/\b(theatrical|extended|director'?s?\s*cut|unrated|uncut|remastered|anniversary|collector'?s?\s*edition)\b/gi, " ");
     cleaned = cleaned.replace(/\bpart\s*\d+\b/gi, " ");
     cleaned = cleaned.replace(/\b(complete|season|series|collection|boxset|box\s*set)\b/gi, " ");
@@ -21961,7 +21990,15 @@
     }
     const normalized = normalizeTitle(noExt);
     const yearMatch = noExt.match(/\b(19|20)\d{2}\b/);
-    const title = yearMatch ? normalizeTitle(noExt.replace(/\b(19|20)\d{2}\b/, "")) : normalized;
+    let title = yearMatch ? normalizeTitle(noExt.replace(/\b(19|20)\d{2}\b/, "")) : normalized;
+    if (fullPath && (!title || title.length < 3)) {
+      const parts = fullPath.split("/").filter(Boolean);
+      if (parts.length >= 2) {
+        const parent = parts[parts.length - 2];
+        const candidate = normalizeTitle(parent.replace(/\b(19|20)\d{2}\b/, ""));
+        if (candidate && candidate.length >= 3) title = candidate;
+      }
+    }
     return { kind: "movie", title: title || normalized, year: yearMatch ? yearMatch[0] : void 0 };
   }
   async function crawlDirectory(baseUrl, options = {}) {

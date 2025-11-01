@@ -325,10 +325,16 @@ async function searchTMDBMovies(apiKey, query) {
 
 const VIDEO_EXTS = [".mp4", ".mkv", ".m3u8", ".avi", ".mov", ".ts", ".flv", ".wmv"];
 const QUALITY_TAGS = [
-  "dvdrip", "brrip", "hdrip", "bdrip", "bluray", "blu-ray", "webrip", "webdl", "web-dl",
-  "hdtv", "cam", "ts", "telesync", "tvrip", "uhd", "4k", "2160p", "1080p", "720p", "480p",
-  "xvid", "x264", "x265", "hevc", "aac", "dts", "dolby", "hdr", "proper", "repack",
-  "uncut", "extended", "imax", "remastered", "multi", "subs", "dubbed", "dual", "rip"
+  // Source/quality
+  "dvdrip", "brrip", "hdrip", "bdrip", "bluray", "blu-ray", "webrip", "webdl", "web-dl", "web",
+  "hdtv", "cam", "ts", "telesync", "tvrip", "uhd", "4k", "2160p", "1440p", "1080p", "1080i", "720p", "720i", "576p", "540p", "480p", "360p", "240p",
+  // Codecs
+  "xvid", "x264", "x265", "h264", "h265", "hevc",
+  // Audio
+  "aac", "ac3", "eac3", "dd", "ddp", "dts", "dts-hd", "truehd", "atmos", "mp3", "flac", "dolby",
+  // Other tags
+  "hdr", "hdr10", "dv", "dolby vision", "proper", "repack", "remux",
+  "uncut", "extended", "imax", "remastered", "multi", "subs", "subbed", "dubbed", "dual", "rip"
 ];
 const QUALITY_REGEX = new RegExp(`\\b(${QUALITY_TAGS.join("|")})\\b`, "gi");
 const LOCAL_PROXY_PREFIX = "/proxy?url=";
@@ -497,6 +503,11 @@ function normalizeTitle(raw) {
 
   // Remove quality tags
   cleaned = cleaned.replace(QUALITY_REGEX, " ");
+  // Remove audio channel notations and codecs left behind
+  cleaned = cleaned
+    .replace(/\b(5\.1|7\.1|2\.0|1\.0)\b/gi, " ")
+    .replace(/\b(dd|ddp|ac3|eac3|dts(?:-?hd)?|truehd|atmos)\b/gi, " ")
+    .replace(/\b(remux|proper|repack)\b/gi, " ");
   // Remove edition info
   cleaned = cleaned.replace(/\b(theatrical|extended|director'?s?\s*cut|unrated|uncut|remastered|anniversary|collector'?s?\s*edition)\b/gi, " ");
   // Remove part numbers
@@ -580,7 +591,17 @@ function parseMediaName(filename, fullPath = "") {
   const normalized = normalizeTitle(noExt);
   const yearMatch = noExt.match(/\b(19|20)\d{2}\b/);
   // Remove year from title if found
-  const title = yearMatch ? normalizeTitle(noExt.replace(/\b(19|20)\d{2}\b/, "")) : normalized;
+  let title = yearMatch ? normalizeTitle(noExt.replace(/\b(19|20)\d{2}\b/, "")) : normalized;
+  
+  // If movie title is still weak, try using parent folder name
+  if (fullPath && (!title || title.length < 3)) {
+    const parts = fullPath.split('/').filter(Boolean);
+    if (parts.length >= 2) {
+      const parent = parts[parts.length - 2];
+      const candidate = normalizeTitle(parent.replace(/\b(19|20)\d{2}\b/, ""));
+      if (candidate && candidate.length >= 3) title = candidate;
+    }
+  }
   
   return { kind: "movie", title: title || normalized, year: yearMatch ? yearMatch[0] : undefined };
 }
