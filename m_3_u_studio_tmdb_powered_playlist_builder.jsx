@@ -183,6 +183,75 @@ function downloadText(filename, text) {
   URL.revokeObjectURL(url);
 }
 
+// ---------- Show grouping & merge helpers ----------
+const getShowGroupKey = (show) => {
+  const key = show?.tmdbId ? String(show.tmdbId) : normalizeTitle(show?.title || "");
+  return key || String(show?.id || Math.random());
+};
+
+function coalesceShows(showList) {
+  const byKey = new Map();
+  for (const s of showList || []) {
+    const key = getShowGroupKey(s);
+    if (!byKey.has(key)) {
+      // shallow clone base
+      byKey.set(key, {
+        __groupKey: key,
+        id: s.id, // keep first id for sorting by added
+        tmdbId: s.tmdbId,
+        title: s.title,
+        overview: s.overview,
+        poster: s.poster,
+        year: s.year,
+        rating: s.rating,
+        genres: s.genres,
+        status: s.status,
+        numberOfSeasons: s.numberOfSeasons,
+        numberOfEpisodes: s.numberOfEpisodes,
+        group: s.group,
+        pattern: s.pattern || "",
+        seasons: []
+      });
+    }
+    const base = byKey.get(key);
+    // Prefer non-empty metadata
+    base.overview = base.overview || s.overview;
+    base.poster = base.poster || s.poster;
+    base.year = base.year || s.year;
+    base.rating = base.rating || s.rating;
+    base.genres = base.genres || s.genres;
+    base.status = base.status || s.status;
+    base.numberOfSeasons = Math.max(base.numberOfSeasons || 0, s.numberOfSeasons || (s.seasons?.length || 0));
+    base.numberOfEpisodes = Math.max(
+      base.numberOfEpisodes || 0,
+      s.numberOfEpisodes || (s.seasons?.reduce((acc, sea) => acc + (sea.episodes?.length || 0), 0) || 0)
+    );
+    base.group = base.group || s.group;
+    base.pattern = base.pattern || s.pattern || "";
+
+    // Merge seasons/episodes
+    const seasonMap = new Map((base.seasons || []).map(sea => [sea.season, { ...sea, episodes: [...(sea.episodes || [])] }]));
+    for (const sea of (s.seasons || [])) {
+      const existing = seasonMap.get(sea.season) || { season: sea.season, episodes: [] };
+      const epMap = new Map((existing.episodes || []).map(ep => [ep.episode, { ...ep }]));
+      for (const ep of (sea.episodes || [])) {
+        const exists = epMap.get(ep.episode);
+        if (!exists) {
+          epMap.set(ep.episode, { ...ep });
+        } else {
+          // Prefer URL if missing
+          if (!exists.url && ep.url) exists.url = ep.url;
+          // Prefer title if empty
+          if (!exists.title && ep.title) exists.title = ep.title;
+        }
+      }
+      seasonMap.set(sea.season, { season: sea.season, episodes: Array.from(epMap.values()).sort((a,b)=>a.episode-b.episode) });
+    }
+    base.seasons = Array.from(seasonMap.values()).sort((a,b)=>a.season-b.season);
+  }
+  return Array.from(byKey.values());
+}
+
 // Infer a URL pattern (very lightweight):
 // Given samples like
 //  https://cdn.site/show/S01E01.m3u8
@@ -1061,8 +1130,9 @@ export default function App() {
   const secondaryButton = `${baseButton} border border-white/20 bg-slate-800/60 text-slate-200 focus:ring-aurora/30 hover:border-aurora/40 hover:bg-slate-800 hover:text-white`;
   const ghostButton = `${baseButton} border border-white/10 text-slate-300 bg-transparent focus:ring-aurora/30 hover:border-aurora/50 hover:text-aurora hover:bg-aurora/5`;
   const dangerButton = `${baseButton} border border-red-500/40 text-red-300 bg-red-500/10 focus:ring-red-400/50 hover:bg-red-500/20 hover:border-red-500/60`;
-  const m3u = useMemo(() => buildM3U({ channels, shows, movies }), [channels, shows, movies]);
-  const epg = useMemo(() => buildEPG({ channels, shows, movies, epgMappings }), [channels, shows, movies, epgMappings]);
+  const groupedShows = useMemo(() => coalesceShows(shows), [shows]);
+  const m3u = useMemo(() => buildM3U({ channels, shows: groupedShows, movies }), [channels, groupedShows, movies]);
+  const epg = useMemo(() => buildEPG({ channels, shows: groupedShows, movies, epgMappings }), [channels, groupedShows, movies, epgMappings]);
 
   const libraryCandidates = useMemo(() => buildLibraryCandidates(libraryFileEntries), [libraryFileEntries]);
   // Live import helpers for library scanning
@@ -2274,7 +2344,7 @@ export default function App() {
             </TabBtn>
             <TabBtn icon="🎬" active={active === "shows"} onClick={()=>setActive("shows")}>
               TV Shows
-              {shows.length > 0 && <span className="px-2 py-0.5 text-xs rounded-full bg-white/20">{shows.length}</span>}
+              {groupedShows.length > 0 && <span className="px-2 py-0.5 text-xs rounded-full bg-white/20">{groupedShows.length}</span>}
             </TabBtn>
             <TabBtn icon="🎥" active={active === "movies"} onClick={()=>setActive("movies")}>
               Movies
@@ -2324,10 +2394,10 @@ export default function App() {
                     <div className="text-4xl">🎬</div>
                     <div className="text-xs font-semibold px-3 py-1 rounded-full bg-purple-500/20 text-purple-300">Series</div>
                   </div>
-                  <div className="text-3xl font-bold text-white mb-1">{shows.length}</div>
+                  <div className="text-3xl font-bold text-white mb-1">{groupedShows.length}</div>
                   <div className="text-sm text-slate-400">TV Shows</div>
                   <div className="mt-3 text-xs text-slate-500">
-                    {shows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0)} total episodes
+                    {groupedShows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0)} total episodes
                   </div>
                 </div>
               </Card>
@@ -2355,7 +2425,7 @@ export default function App() {
                     <div className="text-xs font-semibold px-3 py-1 rounded-full bg-aurora/20 text-aurora">Total</div>
                   </div>
                   <div className="text-3xl font-bold text-white mb-1">
-                    {channels.length + shows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0) + movies.length}
+                    {channels.length + groupedShows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0) + movies.length}
                   </div>
                   <div className="text-sm text-slate-400">Total Entries</div>
                   <div className="mt-3 text-xs text-slate-500">
@@ -3646,12 +3716,12 @@ export default function App() {
             </Card>
 
             {/* Shows Library */}
-            {shows.length > 0 && (
+            {groupedShows.length > 0 && (
               <Card>
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <SectionTitle>📺 Your TV Shows</SectionTitle>
-                    <p className="text-sm text-slate-400 mt-1">{shows.length} series in your library</p>
+                    <p className="text-sm text-slate-400 mt-1">{groupedShows.length} series in your library</p>
                   </div>
                   <div className="flex gap-2 items-center">
                     <select
@@ -3676,7 +3746,7 @@ export default function App() {
                         className={dangerButton}
                         onClick={() => {
                           if (window.confirm(`Delete ${selectedShows.size} selected show${selectedShows.size > 1 ? 's' : ''}?`)) {
-                            setShows(ss => ss.filter(s => !selectedShows.has(s.id)));
+                            setShows(ss => ss.filter(s => !selectedShows.has(getShowGroupKey(s))));
                             setSelectedShows(new Set());
                           }
                         }}
@@ -3688,7 +3758,7 @@ export default function App() {
                 </div>
 
                 <div className="space-y-4">
-                  {shows.filter(s => {
+                  {groupedShows.filter(s => {
                     if (!showSearchFilter.trim()) return true;
                     const search = showSearchFilter.toLowerCase();
                     return s.title?.toLowerCase().includes(search) || 
@@ -3716,17 +3786,17 @@ export default function App() {
                       sum + (season.episodes?.filter(ep => ep.url).length || 0), 0) || 0;
                     
                     return (
-                      <div key={show.id} className="rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all">
+                      <div key={show.__groupKey} className="rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all">
                         <div className="flex gap-4">
                           <input
                             type="checkbox"
-                            checked={selectedShows.has(show.id)}
+                            checked={selectedShows.has(show.__groupKey)}
                             onChange={(e) => {
                               const newSelected = new Set(selectedShows);
                               if (e.target.checked) {
-                                newSelected.add(show.id);
+                                newSelected.add(show.__groupKey);
                               } else {
-                                newSelected.delete(show.id);
+                                newSelected.delete(show.__groupKey);
                               }
                               setSelectedShows(newSelected);
                             }}
@@ -3788,7 +3858,7 @@ export default function App() {
                                   className="text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0"
                                   onClick={() => {
                                     if (window.confirm(`Delete "${show.title}"?`)) {
-                                      setShows(ss => ss.filter(s => s.id !== show.id));
+                                      setShows(ss => ss.filter(s => getShowGroupKey(s) !== show.__groupKey));
                                     }
                                   }}
                                 >
@@ -3808,7 +3878,10 @@ export default function App() {
                                 className={`${inputClass} flex-1 max-w-xs py-2 text-sm`}
                                 placeholder="e.g., TV Shows, Series, etc."
                                 value={show.group || ""}
-                                onChange={(e) => setShowPatch(show.id, { group: e.target.value })}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setShows(ss => ss.map(s => getShowGroupKey(s) === show.__groupKey ? { ...s, group: val } : s));
+                                }}
                               />
                             </div>
 
@@ -3825,7 +3898,10 @@ export default function App() {
                                     className={inputClass}
                                     placeholder="e.g., https://cdn.example.com/show/{season}/{episode}.mp4"
                                     value={show.pattern || ""}
-                                    onChange={(e) => setShowPatch(show.id, { pattern: e.target.value })}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setShows(ss => ss.map(s => getShowGroupKey(s) === show.__groupKey ? { ...s, pattern: val } : s));
+                                    }}
                                   />
                                   <p className="text-xs text-slate-500 mt-2">
                                     Use tokens: {"{season}"}, {"{episode}"}, {"{s2}"}, {"{e2}"} (zero-padded)
@@ -3837,7 +3913,8 @@ export default function App() {
                                     onClick={() => {
                                       const samples = prompt("Paste 2-3 sample URLs (one per line):");
                                       if (samples) {
-                                        guessPattern(show.id, samples.split("\n"));
+                                        const ids = shows.filter(s => getShowGroupKey(s) === show.__groupKey).map(s => s.id);
+                                        ids.forEach(id => guessPattern(id, samples.split("\n")));
                                       }
                                     }}
                                   >
@@ -3846,12 +3923,13 @@ export default function App() {
                                   <button
                                     className={primaryButton}
                                     onClick={() => {
-                                      if (show.pattern) {
-                                        fillShowUrls(show.id);
-                                        showToast("Episode URLs generated from pattern!", "success");
-                                      } else {
+                                      if (!show.pattern) {
                                         showToast("Please set a URL pattern first", "error");
+                                        return;
                                       }
+                                      const ids = shows.filter(s => getShowGroupKey(s) === show.__groupKey).map(s => s.id);
+                                      ids.forEach(id => fillShowUrls(id));
+                                      showToast("Episode URLs generated from pattern!", "success");
                                     }}
                                   >
                                     ✨ Generate URLs
@@ -3897,7 +3975,7 @@ export default function App() {
               </Card>
             )}
 
-            {shows.length === 0 && (
+            {groupedShows.length === 0 && (
               <Card>
                 <div className="text-center py-16">
                   <div className="text-6xl mb-4">🎬</div>

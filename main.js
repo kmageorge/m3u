@@ -21611,6 +21611,67 @@
     a.click();
     URL.revokeObjectURL(url);
   }
+  var getShowGroupKey = (show) => {
+    const key = show?.tmdbId ? String(show.tmdbId) : normalizeTitle(show?.title || "");
+    return key || String(show?.id || Math.random());
+  };
+  function coalesceShows(showList) {
+    const byKey = /* @__PURE__ */ new Map();
+    for (const s of showList || []) {
+      const key = getShowGroupKey(s);
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          __groupKey: key,
+          id: s.id,
+          // keep first id for sorting by added
+          tmdbId: s.tmdbId,
+          title: s.title,
+          overview: s.overview,
+          poster: s.poster,
+          year: s.year,
+          rating: s.rating,
+          genres: s.genres,
+          status: s.status,
+          numberOfSeasons: s.numberOfSeasons,
+          numberOfEpisodes: s.numberOfEpisodes,
+          group: s.group,
+          pattern: s.pattern || "",
+          seasons: []
+        });
+      }
+      const base = byKey.get(key);
+      base.overview = base.overview || s.overview;
+      base.poster = base.poster || s.poster;
+      base.year = base.year || s.year;
+      base.rating = base.rating || s.rating;
+      base.genres = base.genres || s.genres;
+      base.status = base.status || s.status;
+      base.numberOfSeasons = Math.max(base.numberOfSeasons || 0, s.numberOfSeasons || (s.seasons?.length || 0));
+      base.numberOfEpisodes = Math.max(
+        base.numberOfEpisodes || 0,
+        s.numberOfEpisodes || (s.seasons?.reduce((acc, sea) => acc + (sea.episodes?.length || 0), 0) || 0)
+      );
+      base.group = base.group || s.group;
+      base.pattern = base.pattern || s.pattern || "";
+      const seasonMap = new Map((base.seasons || []).map((sea) => [sea.season, { ...sea, episodes: [...sea.episodes || []] }]));
+      for (const sea of s.seasons || []) {
+        const existing = seasonMap.get(sea.season) || { season: sea.season, episodes: [] };
+        const epMap = new Map((existing.episodes || []).map((ep) => [ep.episode, { ...ep }]));
+        for (const ep of sea.episodes || []) {
+          const exists = epMap.get(ep.episode);
+          if (!exists) {
+            epMap.set(ep.episode, { ...ep });
+          } else {
+            if (!exists.url && ep.url) exists.url = ep.url;
+            if (!exists.title && ep.title) exists.title = ep.title;
+          }
+        }
+        seasonMap.set(sea.season, { season: sea.season, episodes: Array.from(epMap.values()).sort((a, b) => a.episode - b.episode) });
+      }
+      base.seasons = Array.from(seasonMap.values()).sort((a, b) => a.season - b.season);
+    }
+    return Array.from(byKey.values());
+  }
   function inferPattern(samples) {
     const clean = samples.filter(Boolean).map((s) => s.trim());
     if (clean.length < 2) return { pattern: "", notes: "Need 2+ samples" };
@@ -22379,8 +22440,9 @@
     const secondaryButton = `${baseButton} border border-white/20 bg-slate-800/60 text-slate-200 focus:ring-aurora/30 hover:border-aurora/40 hover:bg-slate-800 hover:text-white`;
     const ghostButton = `${baseButton} border border-white/10 text-slate-300 bg-transparent focus:ring-aurora/30 hover:border-aurora/50 hover:text-aurora hover:bg-aurora/5`;
     const dangerButton = `${baseButton} border border-red-500/40 text-red-300 bg-red-500/10 focus:ring-red-400/50 hover:bg-red-500/20 hover:border-red-500/60`;
-    const m3u = (0, import_react.useMemo)(() => buildM3U({ channels, shows, movies }), [channels, shows, movies]);
-    const epg = (0, import_react.useMemo)(() => buildEPG({ channels, shows, movies, epgMappings }), [channels, shows, movies, epgMappings]);
+    const groupedShows = (0, import_react.useMemo)(() => coalesceShows(shows), [shows]);
+    const m3u = (0, import_react.useMemo)(() => buildM3U({ channels, shows: groupedShows, movies }), [channels, groupedShows, movies]);
+    const epg = (0, import_react.useMemo)(() => buildEPG({ channels, shows: groupedShows, movies, epgMappings }), [channels, groupedShows, movies, epgMappings]);
     const libraryCandidates = (0, import_react.useMemo)(() => buildLibraryCandidates(libraryFileEntries), [libraryFileEntries]);
     const importQueueRef = (0, import_react.useRef)([]);
     const processingQueueRef = (0, import_react.useRef)(false);
@@ -23418,7 +23480,7 @@
         onClick: () => navigator.clipboard.writeText(apiKey)
       },
       "Copy"
-    )), playlistSyncStatus !== "idle" && /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/60 text-xs font-medium" }, playlistSyncStatus === "syncing" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora animate-pulse" }, "\u25CF Syncing..."), playlistSyncStatus === "saved" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-green-400" }, "\u25CF Saved"), playlistSyncStatus === "error" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-red-400" }, "\u25CF Error")))), /* @__PURE__ */ import_react.default.createElement("nav", { className: "pb-4 flex gap-2 overflow-x-auto scrollbar-hide" }, /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\uFFFD", active: active === "dashboard", onClick: () => setActive("dashboard") }, "Dashboard"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\uFFFD\u{1F4FA}", active: active === "channels", onClick: () => setActive("channels") }, "Channels", channels.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, channels.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4E1}", active: active === "epg", onClick: () => setActive("epg") }, "EPG", epgSources.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, epgSources.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F3AC}", active: active === "shows", onClick: () => setActive("shows") }, "TV Shows", shows.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, shows.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F3A5}", active: active === "movies", onClick: () => setActive("movies") }, "Movies", movies.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, movies.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4C2}", active: active === "library", onClick: () => setActive("library") }, "Library"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4CB}", active: active === "playlist", onClick: () => setActive("playlist") }, "Export")))), /* @__PURE__ */ import_react.default.createElement("main", { className: "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 space-y-8" }, active === "dashboard" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h2", { className: "text-3xl font-bold text-white" }, "Dashboard"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400 mt-1" }, "Overview of your IPTV management system"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" }, /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F4FA}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-blue-500/20 text-blue-300" }, "Live")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, channels.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Live Channels"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, channelImports.length, " playlist", channelImports.length !== 1 ? "s" : "", " imported"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F3AC}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-purple-500/20 text-purple-300" }, "Series")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, shows.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "TV Shows"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, shows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0), " total episodes"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-pink-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-pink-500/20 text-pink-300" }, "VOD")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, movies.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Movies"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, "On-demand content"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-aurora/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F4CB}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-aurora/20 text-aurora" }, "Total")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, channels.length + shows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0) + movies.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Total Entries"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, "In playlist")))), /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, { subtitle: "Breakdown of your live channels by category" }, "\u{1F4CA} Channel Distribution"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" }, (() => {
+    )), playlistSyncStatus !== "idle" && /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/60 text-xs font-medium" }, playlistSyncStatus === "syncing" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora animate-pulse" }, "\u25CF Syncing..."), playlistSyncStatus === "saved" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-green-400" }, "\u25CF Saved"), playlistSyncStatus === "error" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-red-400" }, "\u25CF Error")))), /* @__PURE__ */ import_react.default.createElement("nav", { className: "pb-4 flex gap-2 overflow-x-auto scrollbar-hide" }, /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\uFFFD", active: active === "dashboard", onClick: () => setActive("dashboard") }, "Dashboard"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\uFFFD\u{1F4FA}", active: active === "channels", onClick: () => setActive("channels") }, "Channels", channels.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, channels.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4E1}", active: active === "epg", onClick: () => setActive("epg") }, "EPG", epgSources.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, epgSources.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F3AC}", active: active === "shows", onClick: () => setActive("shows") }, "TV Shows", groupedShows.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, groupedShows.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F3A5}", active: active === "movies", onClick: () => setActive("movies") }, "Movies", movies.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, movies.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4C2}", active: active === "library", onClick: () => setActive("library") }, "Library"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4CB}", active: active === "playlist", onClick: () => setActive("playlist") }, "Export")))), /* @__PURE__ */ import_react.default.createElement("main", { className: "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 space-y-8" }, active === "dashboard" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h2", { className: "text-3xl font-bold text-white" }, "Dashboard"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400 mt-1" }, "Overview of your IPTV management system"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" }, /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F4FA}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-blue-500/20 text-blue-300" }, "Live")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, channels.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Live Channels"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, channelImports.length, " playlist", channelImports.length !== 1 ? "s" : "", " imported"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F3AC}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-purple-500/20 text-purple-300" }, "Series")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, groupedShows.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "TV Shows"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, groupedShows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0), " total episodes"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-pink-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-pink-500/20 text-pink-300" }, "VOD")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, movies.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Movies"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, "On-demand content"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-aurora/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F4CB}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-aurora/20 text-aurora" }, "Total")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, channels.length + groupedShows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0) + movies.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Total Entries"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, "In playlist")))), /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, { subtitle: "Breakdown of your live channels by category" }, "\u{1F4CA} Channel Distribution"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" }, (() => {
       const groups = {};
       channels.forEach((ch) => {
         const group = ch.group || "Uncategorized";
@@ -23942,7 +24004,7 @@
         }
       },
       "\u2795 Add Show"
-    ))))))), shows.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F4FA} Your TV Shows"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, shows.length, " series in your library")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2 items-center" }, /* @__PURE__ */ import_react.default.createElement(
+    ))))))), groupedShows.length > 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "\u{1F4FA} Your TV Shows"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, groupedShows.length, " series in your library")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2 items-center" }, /* @__PURE__ */ import_react.default.createElement(
       "select",
       {
         className: `${inputClass} w-40 py-2`,
@@ -23968,7 +24030,7 @@
         className: dangerButton,
         onClick: () => {
           if (window.confirm(`Delete ${selectedShows.size} selected show${selectedShows.size > 1 ? "s" : ""}?`)) {
-            setShows((ss) => ss.filter((s) => !selectedShows.has(s.id)));
+            setShows((ss) => ss.filter((s) => !selectedShows.has(getShowGroupKey(s))));
             setSelectedShows(/* @__PURE__ */ new Set());
           }
         }
@@ -23976,7 +24038,7 @@
       "\u{1F5D1}\uFE0F Delete (",
       selectedShows.size,
       ")"
-    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, shows.filter((s) => {
+    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, groupedShows.filter((s) => {
       if (!showSearchFilter.trim()) return true;
       const search = showSearchFilter.toLowerCase();
       return s.title?.toLowerCase().includes(search) || s.genres?.toLowerCase().includes(search) || s.year?.toString().includes(search);
@@ -23996,17 +24058,17 @@
       const isNew = idx < 5 && showSortBy === "added";
       const totalEpisodes = show.seasons?.reduce((sum, season) => sum + (season.episodes?.length || 0), 0) || 0;
       const episodesWithUrls = show.seasons?.reduce((sum, season) => sum + (season.episodes?.filter((ep) => ep.url).length || 0), 0) || 0;
-      return /* @__PURE__ */ import_react.default.createElement("div", { key: show.id, className: "rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ import_react.default.createElement(
+      return /* @__PURE__ */ import_react.default.createElement("div", { key: show.__groupKey, className: "rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:border-aurora/30 transition-all" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ import_react.default.createElement(
         "input",
         {
           type: "checkbox",
-          checked: selectedShows.has(show.id),
+          checked: selectedShows.has(show.__groupKey),
           onChange: (e) => {
             const newSelected = new Set(selectedShows);
             if (e.target.checked) {
-              newSelected.add(show.id);
+              newSelected.add(show.__groupKey);
             } else {
-              newSelected.delete(show.id);
+              newSelected.delete(show.__groupKey);
             }
             setSelectedShows(newSelected);
           },
@@ -24018,7 +24080,7 @@
           className: "text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all flex-shrink-0",
           onClick: () => {
             if (window.confirm(`Delete "${show.title}"?`)) {
-              setShows((ss) => ss.filter((s) => s.id !== show.id));
+              setShows((ss) => ss.filter((s) => getShowGroupKey(s) !== show.__groupKey));
             }
           }
         },
@@ -24029,7 +24091,10 @@
           className: `${inputClass} flex-1 max-w-xs py-2 text-sm`,
           placeholder: "e.g., TV Shows, Series, etc.",
           value: show.group || "",
-          onChange: (e) => setShowPatch(show.id, { group: e.target.value })
+          onChange: (e) => {
+            const val = e.target.value;
+            setShows((ss) => ss.map((s) => getShowGroupKey(s) === show.__groupKey ? { ...s, group: val } : s));
+          }
         }
       )), /* @__PURE__ */ import_react.default.createElement("details", { className: "group" }, /* @__PURE__ */ import_react.default.createElement("summary", { className: "cursor-pointer text-sm font-semibold text-aurora hover:text-sky-400 flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u2699\uFE0F Configure Episode URLs"), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xs text-slate-500" }, "(", show.pattern ? "Pattern set" : "Not configured", ")")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-3 p-4 rounded-lg bg-slate-900/60 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-xs font-semibold text-slate-400 mb-2" }, "URL Pattern"), /* @__PURE__ */ import_react.default.createElement(
         "input",
@@ -24037,7 +24102,10 @@
           className: inputClass,
           placeholder: "e.g., https://cdn.example.com/show/{season}/{episode}.mp4",
           value: show.pattern || "",
-          onChange: (e) => setShowPatch(show.id, { pattern: e.target.value })
+          onChange: (e) => {
+            const val = e.target.value;
+            setShows((ss) => ss.map((s) => getShowGroupKey(s) === show.__groupKey ? { ...s, pattern: val } : s));
+          }
         }
       ), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-500 mt-2" }, "Use tokens: ", "{season}", ", ", "{episode}", ", ", "{s2}", ", ", "{e2}", " (zero-padded)")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ import_react.default.createElement(
         "button",
@@ -24046,7 +24114,8 @@
           onClick: () => {
             const samples = prompt("Paste 2-3 sample URLs (one per line):");
             if (samples) {
-              guessPattern(show.id, samples.split("\n"));
+              const ids = shows.filter((s) => getShowGroupKey(s) === show.__groupKey).map((s) => s.id);
+              ids.forEach((id) => guessPattern(id, samples.split("\n")));
             }
           }
         },
@@ -24056,17 +24125,18 @@
         {
           className: primaryButton,
           onClick: () => {
-            if (show.pattern) {
-              fillShowUrls(show.id);
-              showToast("Episode URLs generated from pattern!", "success");
-            } else {
+            if (!show.pattern) {
               showToast("Please set a URL pattern first", "error");
+              return;
             }
+            const ids = shows.filter((s) => getShowGroupKey(s) === show.__groupKey).map((s) => s.id);
+            ids.forEach((id) => fillShowUrls(id));
+            showToast("Episode URLs generated from pattern!", "success");
           }
         },
         "\u2728 Generate URLs"
       )))), /* @__PURE__ */ import_react.default.createElement("details", null, /* @__PURE__ */ import_react.default.createElement("summary", { className: "cursor-pointer text-sm font-semibold text-slate-300 hover:text-white flex items-center gap-2" }, "\u{1F4CB} View Seasons & Episodes"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 space-y-2 max-h-60 overflow-y-auto" }, show.seasons?.map((season) => /* @__PURE__ */ import_react.default.createElement("div", { key: season.season, className: "text-xs bg-slate-900/40 rounded-lg p-3 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-semibold text-white mb-1" }, "Season ", season.season, " - ", season.episodes?.length || 0, " episodes"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-slate-400 space-y-1" }, season.episodes?.slice(0, 5).map((ep) => /* @__PURE__ */ import_react.default.createElement("div", { key: ep.episode, className: "flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: ep.url ? "text-green-400" : "text-slate-500" }, ep.url ? "\u2713" : "\u25CB"), /* @__PURE__ */ import_react.default.createElement("span", null, "E", String(ep.episode).padStart(2, "0"), ": ", ep.title))), season.episodes && season.episodes.length > 5 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-slate-500 italic" }, "...and ", season.episodes.length - 5, " more")))))))));
-    }))), shows.length === 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F3AC}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No TV Shows Yet"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "Search and add your first TV series to get started")))), active === "movies" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(
+    }))), groupedShows.length === 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F3AC}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No TV Shows Yet"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "Search and add your first TV series to get started")))), active === "movies" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(
       SectionTitle,
       {
         subtitle: "Search TMDB by name or import by ID to add movies with metadata"
