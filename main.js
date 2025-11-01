@@ -22004,6 +22004,9 @@
     cleaned = cleaned.replace(/\b(theatrical|extended|director'?s?\s*cut|unrated|uncut|remastered|anniversary|collector'?s?\s*edition)\b/gi, " ");
     cleaned = cleaned.replace(/\bpart\s*\d+\b/gi, " ");
     cleaned = cleaned.replace(/\b(complete|season|series|collection|boxset|box\s*set)\b/gi, " ");
+    cleaned = cleaned.replace(/\(\s*\)/g, " ").replace(/\[\s*\]/g, " ");
+    cleaned = cleaned.replace(/\b(\w+)(?:\s+\1\b)+/gi, "$1");
+    cleaned = cleaned.replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, " ");
     return cleaned.replace(/\s+/g, " ").trim();
   }
   function parseMediaName(filename, fullPath = "") {
@@ -22487,17 +22490,51 @@
           const norm = normalizeTitle(info.title);
           let tmdbId = tmdbCacheRef.current.movies.get(norm);
           if (!tmdbId) {
-            const searchQuery = info.year ? `${info.title} ${info.year}` : info.title;
-            const results = await searchTMDBMovies(apiKey, searchQuery);
-            if (!results || results.length === 0) {
+            const attempts = [];
+            const pushAttempt = (q) => {
+              if (q && !attempts.includes(q)) attempts.push(q);
+            };
+            if (info.year) pushAttempt(`${info.title} ${info.year}`);
+            pushAttempt(info.title);
+            const stripped = info.title.replace(/\s*[\[\(].*?[\]\)]\s*/g, " ").replace(/\s+/g, " ").trim();
+            pushAttempt(stripped);
+            if (info.year) pushAttempt(`${stripped} ${info.year}`);
+            const cleanDots = info.title.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
+            pushAttempt(cleanDots);
+            if (info.year) pushAttempt(`${cleanDots} ${info.year}`);
+            try {
+              const pathParts = (entry.path || "").split("/").filter(Boolean);
+              if (pathParts.length >= 2) {
+                const parent = pathParts[pathParts.length - 2];
+                const parentClean = parent.replace(/\b(19|20)\d{2}\b/, "").replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
+                if (parentClean && parentClean.length >= 2) {
+                  pushAttempt(parentClean);
+                  if (info.year) pushAttempt(`${parentClean} ${info.year}`);
+                }
+              }
+            } catch (e) {
+            }
+            const uniqueAttempts = Array.from(new Set(attempts)).slice(0, 8);
+            let found = null;
+            for (const q of uniqueAttempts) {
+              setLibraryProgress((prev) => ({ ...prev, logs: [`Searching TMDB: "${q}"`, ...prev.logs].slice(0, 8) }));
+              const results = await searchTMDBMovies(apiKey, q);
+              if (results && results.length > 0) {
+                found = results[0];
+                tmdbId = String(found.id);
+                tmdbCacheRef.current.movies.set(norm, tmdbId);
+                setLibraryProgress((prev) => ({ ...prev, logs: [`Matched TMDB: "${found.title}" for query "${q}"`, ...prev.logs].slice(0, 8) }));
+                break;
+              }
+            }
+            if (!tmdbId) {
               setLibraryProgress((prev) => ({ ...prev, skipped: (prev.skipped || 0) + 1, logs: [
                 `No TMDB match for movie: ${info.title}${info.year ? ` (${info.year})` : ""}`,
+                `Tried queries: ${uniqueAttempts.join(" | ")}`,
                 ...prev.logs
               ].slice(0, 8) }));
               return;
             }
-            tmdbId = String(results[0].id);
-            tmdbCacheRef.current.movies.set(norm, tmdbId);
           }
           await importMovie(tmdbId, { url, group: "Movies" });
           importedUrlSetRef.current.add(url);
