@@ -1043,8 +1043,153 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// ---------- User Management Component ----------
+function UserManagement({ showToast }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  const loadUsers = async () => {
+    try {
+      const response = await fetch('/api/admin/users', {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setUsers(data.users);
+      } else {
+        showToast("Failed to load users", "error");
+      }
+    } catch (err) {
+      showToast("Error loading users: " + err.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleRole = async (userId, currentRole) => {
+    const newRole = currentRole === 'admin' ? 'user' : 'admin';
+    try {
+      const response = await fetch(`/api/admin/users/${userId}/role`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+        credentials: 'include'
+      });
+
+      if (response.ok) {
+        showToast(`User role updated to ${newRole}`, "success");
+        loadUsers();
+      } else {
+        showToast("Failed to update role", "error");
+      }
+    } catch (err) {
+      showToast("Error updating role: " + err.message, "error");
+    }
+  };
+
+  const deleteUser = async (userId, username) => {
+    if (!confirm(`Are you sure you want to delete user "${username}"? This will also delete all their data.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/admin/users/${userId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+
+      if (response.ok) {
+        showToast(`User "${username}" deleted`, "success");
+        loadUsers();
+      } else {
+        const data = await response.json();
+        showToast(data.error || "Failed to delete user", "error");
+      }
+    } catch (err) {
+      showToast("Error deleting user: " + err.message, "error");
+    }
+  };
+
+  if (loading) {
+    return <div className="text-center py-8 text-slate-400">Loading users...</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-400">Manage user accounts and permissions</p>
+        <span className="text-sm font-semibold text-aurora">{users.length} user{users.length !== 1 ? 's' : ''}</span>
+      </div>
+
+      <div className="space-y-3">
+        {users.map((u) => (
+          <div
+            key={u.id}
+            className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-slate-900/50 border border-white/10 hover:border-white/20 transition-all"
+          >
+            <div className="flex-1">
+              <div className="flex items-center gap-3">
+                <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-aurora to-sky-500 text-midnight text-sm font-bold">
+                  {u.username.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-white">{u.username}</span>
+                    <span className={`px-2 py-0.5 text-xs font-bold rounded ${
+                      u.role === 'admin'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                        : 'bg-slate-700 text-slate-300'
+                    }`}>
+                      {u.role.toUpperCase()}
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-400">{u.email}</p>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Joined {new Date(u.created_at).toLocaleDateString()}
+                    {u.last_login && ` • Last login ${new Date(u.last_login).toLocaleDateString()}`}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => toggleRole(u.id, u.role)}
+                className="px-4 py-2 rounded-lg text-sm font-semibold border border-white/20 bg-slate-800/60 text-slate-200 hover:border-aurora/40 hover:bg-slate-800 hover:text-white transition-all"
+              >
+                {u.role === 'admin' ? 'Revoke Admin' : 'Make Admin'}
+              </button>
+              <button
+                onClick={() => deleteUser(u.id, u.username)}
+                className="px-4 py-2 rounded-lg text-sm font-semibold border border-red-500/40 text-red-300 bg-red-500/10 hover:bg-red-500/20 hover:border-red-500/60 transition-all"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {users.length === 0 && (
+        <div className="text-center py-12">
+          <p className="text-slate-400">No users found</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------- Main App ----------
 export default function App() {
+  // User authentication state
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authView, setAuthView] = useState("login"); // "login" or "register"
+  
   const [apiKey, setApiKey] = useState("");
   const freekeyFetchAttempted = useRef(false);
   const [active, setActive] = useState("dashboard");
@@ -1360,6 +1505,26 @@ export default function App() {
     });
     setLibraryDuplicates(libraryCandidates.duplicates);
   }, [libraryCandidates]);
+  
+  // Check authentication status on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch('/api/auth/me', {
+          credentials: 'include'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setUser(data.user);
+        }
+      } catch (err) {
+        console.log("Not authenticated");
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+    checkAuth();
+  }, []);
   
   // Load data from database on mount
   useEffect(() => {
@@ -2346,6 +2511,253 @@ export default function App() {
     }
   };
 
+  // Authentication handlers
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const username = formData.get('username');
+    const password = formData.get('password');
+    
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+        credentials: 'include'
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        setUser(data.user);
+        showToast(`Welcome back, ${data.user.username}!`, "success");
+      } else {
+        showToast(data.error || "Login failed", "error");
+      }
+    } catch (err) {
+      showToast("Login failed: " + err.message, "error");
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const username = formData.get('username');
+    const email = formData.get('email');
+    const password = formData.get('password');
+    const confirmPassword = formData.get('confirmPassword');
+    
+    if (password !== confirmPassword) {
+      showToast("Passwords don't match", "error");
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, email, password }),
+        credentials: 'include'
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        setUser(data.user);
+        showToast(`Welcome, ${data.user.username}!`, "success");
+      } else {
+        showToast(data.error || "Registration failed", "error");
+      }
+    } catch (err) {
+      showToast("Registration failed: " + err.message, "error");
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      setUser(null);
+      showToast("Logged out successfully", "success");
+    } catch (err) {
+      showToast("Logout failed: " + err.message, "error");
+    }
+  };
+
+  // Show loading screen while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-midnight flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block h-16 w-16 animate-spin rounded-full border-4 border-solid border-aurora border-r-transparent mb-4"></div>
+          <p className="text-slate-300">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login/register screen if not authenticated
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-midnight flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-8">
+            <div className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-aurora via-sky-400 to-sky-500 text-midnight text-3xl font-bold shadow-glow mb-4">
+              M3
+            </div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">
+              M3U Studio
+            </h1>
+            <p className="text-slate-400 mt-2">Build stunning IPTV playlists with TMDB</p>
+          </div>
+
+          <div className="bg-slate-900/50 border border-white/10 rounded-2xl p-8 backdrop-blur-xl">
+            <div className="flex gap-2 mb-6">
+              <button
+                onClick={() => setAuthView('login')}
+                className={`flex-1 py-2 px-4 rounded-lg font-semibold transition-all ${
+                  authView === 'login'
+                    ? 'bg-aurora text-midnight'
+                    : 'bg-slate-800/60 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                Login
+              </button>
+              <button
+                onClick={() => setAuthView('register')}
+                className={`flex-1 py-2 px-4 rounded-lg font-semibold transition-all ${
+                  authView === 'register'
+                    ? 'bg-aurora text-midnight'
+                    : 'bg-slate-800/60 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                Register
+              </button>
+            </div>
+
+            {authView === 'login' ? (
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Username or Email
+                  </label>
+                  <input
+                    name="username"
+                    type="text"
+                    required
+                    className={inputClass}
+                    placeholder="Enter your username or email"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Password
+                  </label>
+                  <input
+                    name="password"
+                    type="password"
+                    required
+                    className={inputClass}
+                    placeholder="Enter your password"
+                  />
+                </div>
+                <button type="submit" className={`${primaryButton} w-full`}>
+                  Login
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleRegister} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Username
+                  </label>
+                  <input
+                    name="username"
+                    type="text"
+                    required
+                    className={inputClass}
+                    placeholder="Choose a username"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Email
+                  </label>
+                  <input
+                    name="email"
+                    type="email"
+                    required
+                    className={inputClass}
+                    placeholder="Enter your email"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Password
+                  </label>
+                  <input
+                    name="password"
+                    type="password"
+                    required
+                    minLength="6"
+                    className={inputClass}
+                    placeholder="Choose a password (min 6 characters)"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Confirm Password
+                  </label>
+                  <input
+                    name="confirmPassword"
+                    type="password"
+                    required
+                    minLength="6"
+                    className={inputClass}
+                    placeholder="Confirm your password"
+                  />
+                </div>
+                <button type="submit" className={`${primaryButton} w-full`}>
+                  Register
+                </button>
+              </form>
+            )}
+
+            <div className="mt-6 pt-6 border-t border-white/10 text-center text-sm text-slate-400">
+              <p>Default admin account:</p>
+              <p className="font-mono text-xs mt-1">
+                username: <span className="text-aurora">admin</span> / password: <span className="text-aurora">admin123</span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Toast Notifications */}
+        <div className="fixed bottom-6 right-6 z-50 space-y-3 max-w-md">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`flex items-start gap-3 p-4 rounded-xl shadow-2xl backdrop-blur-xl border transform transition-all duration-300 ${
+                toast.type === "success"
+                  ? "bg-green-500/20 border-green-500/40 text-green-100"
+                  : toast.type === "error"
+                  ? "bg-red-500/20 border-red-500/40 text-red-100"
+                  : "bg-aurora/20 border-aurora/40 text-white"
+              }`}
+            >
+              <span className="text-xl">
+                {toast.type === "success" ? "✓" : toast.type === "error" ? "✗" : "ℹ"}
+              </span>
+              <span className="flex-1 text-sm font-medium">{toast.message}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen text-slate-100 pb-16">
       <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/90 backdrop-blur-xl shadow-xl">
@@ -2380,24 +2792,86 @@ export default function App() {
                   </button>
                 )}
               </div>
-              {playlistSyncStatus !== "idle" && (
-                <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/60 text-xs font-medium">
-                  {playlistSyncStatus === "syncing" && <span className="text-aurora animate-pulse">● Syncing...</span>}
-                  {playlistSyncStatus === "saved" && <span className="text-green-400">● Saved</span>}
-                  {playlistSyncStatus === "error" && <span className="text-red-400">● Error</span>}
+              
+              {/* User Menu */}
+              <div className="relative group">
+                <button className={`${secondaryButton} flex items-center gap-2`}>
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-aurora to-sky-500 text-midnight text-sm font-bold">
+                    {user.username.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="hidden sm:inline">{user.username}</span>
+                  {user.role === 'admin' && (
+                    <span className="px-2 py-0.5 text-xs font-bold rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      ADMIN
+                    </span>
+                  )}
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                
+                {/* Dropdown Menu */}
+                <div className="absolute right-0 mt-2 w-56 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                  <div className="bg-slate-900 border border-white/10 rounded-xl shadow-2xl py-2 backdrop-blur-xl">
+                    <div className="px-4 py-2 border-b border-white/10">
+                      <p className="text-sm font-semibold text-white">{user.username}</p>
+                      <p className="text-xs text-slate-400">{user.email}</p>
+                    </div>
+                    {user.role === 'admin' && (
+                      <button
+                        onClick={() => setActive('users')}
+                        className="w-full px-4 py-2 text-left text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                        Manage Users
+                      </button>
+                    )}
+                    <button
+                      onClick={handleLogout}
+                      className="w-full px-4 py-2 text-left text-sm text-red-300 hover:bg-red-500/10 hover:text-red-200 transition-colors flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                      </svg>
+                      Logout
+                    </button>
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
           </div>
+          
+          {/* Stats badges */}
+          <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-white/10">
+            <button onClick={()=>setActive("channels")} className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${ active === "channels" ? "bg-aurora text-midnight" : "bg-slate-800/60 text-slate-300 hover:bg-slate-800" }`}>
+              <span>📺</span> {channels.length} Channel{channels.length!==1?"s":""}
+            </button>
+            <button onClick={()=>setActive("shows")} className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${ active === "shows" ? "bg-aurora text-midnight" : "bg-slate-800/60 text-slate-300 hover:bg-slate-800" }`}>
+              <span>📺</span> {groupedShows.length} Show{groupedShows.length!==1?"s":""}
+            </button>
+            <button onClick={()=>setActive("movies")} className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${ active === "movies" ? "bg-aurora text-midnight" : "bg-slate-800/60 text-slate-300 hover:bg-slate-800" }`}>
+              <span>🎬</span> {movies.length} Movie{movies.length!==1?"s":""}
+            </button>
+            {playlistSyncStatus !== "idle" && (
+              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/60 text-xs font-medium">
+                {playlistSyncStatus === "syncing" && <span className="text-aurora animate-pulse">● Syncing...</span>}
+                {playlistSyncStatus === "saved" && <span className="text-green-400">● Saved</span>}
+                {playlistSyncStatus === "error" && <span className="text-red-400">● Error</span>}
+              </div>
+            )}
+          </div>
+          
           <nav className="pb-4 flex gap-2 overflow-x-auto scrollbar-hide">
-            <TabBtn icon="�" active={active === "dashboard"} onClick={()=>setActive("dashboard")}>
+            <TabBtn icon="🏠" active={active === "dashboard"} onClick={()=>setActive("dashboard")}>
               Dashboard
             </TabBtn>
-            <TabBtn icon="�📺" active={active === "channels"} onClick={()=>setActive("channels")}>
+            <TabBtn icon="📺" active={active === "channels"} onClick={()=>setActive("channels")}>
               Channels
               {channels.length > 0 && <span className="px-2 py-0.5 text-xs rounded-full bg-white/20">{channels.length}</span>}
             </TabBtn>
-            <TabBtn icon="📡" active={active === "epg"} onClick={()=>setActive("epg")}>
+            <TabBtn icon="�" active={active === "epg"} onClick={()=>setActive("epg")}>
               EPG
               {epgSources.length > 0 && <span className="px-2 py-0.5 text-xs rounded-full bg-white/20">{epgSources.length}</span>}
             </TabBtn>
@@ -4421,6 +4895,15 @@ export default function App() {
                 </div>
               </Card>
             )}
+          </div>
+        )}
+
+        {active === "users" && user?.role === "admin" && (
+          <div className="space-y-6">
+            <Card>
+              <SectionTitle>User Management</SectionTitle>
+              <UserManagement showToast={showToast} />
+            </Card>
           </div>
         )}
 

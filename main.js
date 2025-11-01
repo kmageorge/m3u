@@ -22358,7 +22358,99 @@
       return this.props.children;
     }
   };
+  function UserManagement({ showToast }) {
+    const [users, setUsers] = (0, import_react.useState)([]);
+    const [loading, setLoading] = (0, import_react.useState)(true);
+    (0, import_react.useEffect)(() => {
+      loadUsers();
+    }, []);
+    const loadUsers = async () => {
+      try {
+        const response = await fetch("/api/admin/users", {
+          credentials: "include"
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setUsers(data.users);
+        } else {
+          showToast("Failed to load users", "error");
+        }
+      } catch (err) {
+        showToast("Error loading users: " + err.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    };
+    const toggleRole = async (userId, currentRole) => {
+      const newRole = currentRole === "admin" ? "user" : "admin";
+      try {
+        const response = await fetch(`/api/admin/users/${userId}/role`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: newRole }),
+          credentials: "include"
+        });
+        if (response.ok) {
+          showToast(`User role updated to ${newRole}`, "success");
+          loadUsers();
+        } else {
+          showToast("Failed to update role", "error");
+        }
+      } catch (err) {
+        showToast("Error updating role: " + err.message, "error");
+      }
+    };
+    const deleteUser = async (userId, username) => {
+      if (!confirm(`Are you sure you want to delete user "${username}"? This will also delete all their data.`)) {
+        return;
+      }
+      try {
+        const response = await fetch(`/api/admin/users/${userId}`, {
+          method: "DELETE",
+          credentials: "include"
+        });
+        if (response.ok) {
+          showToast(`User "${username}" deleted`, "success");
+          loadUsers();
+        } else {
+          const data = await response.json();
+          showToast(data.error || "Failed to delete user", "error");
+        }
+      } catch (err) {
+        showToast("Error deleting user: " + err.message, "error");
+      }
+    };
+    if (loading) {
+      return /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-8 text-slate-400" }, "Loading users...");
+    }
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400" }, "Manage user accounts and permissions"), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm font-semibold text-aurora" }, users.length, " user", users.length !== 1 ? "s" : "")), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-3" }, users.map((u) => /* @__PURE__ */ import_react.default.createElement(
+      "div",
+      {
+        key: u.id,
+        className: "flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-slate-900/50 border border-white/10 hover:border-white/20 transition-all"
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "inline-flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-aurora to-sky-500 text-midnight text-sm font-bold" }, u.username.charAt(0).toUpperCase()), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "font-semibold text-white" }, u.username), /* @__PURE__ */ import_react.default.createElement("span", { className: `px-2 py-0.5 text-xs font-bold rounded ${u.role === "admin" ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-slate-700 text-slate-300"}` }, u.role.toUpperCase())), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400" }, u.email), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500 mt-1" }, "Joined ", new Date(u.created_at).toLocaleDateString(), u.last_login && ` \u2022 Last login ${new Date(u.last_login).toLocaleDateString()}`)))),
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          onClick: () => toggleRole(u.id, u.role),
+          className: "px-4 py-2 rounded-lg text-sm font-semibold border border-white/20 bg-slate-800/60 text-slate-200 hover:border-aurora/40 hover:bg-slate-800 hover:text-white transition-all"
+        },
+        u.role === "admin" ? "Revoke Admin" : "Make Admin"
+      ), /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          onClick: () => deleteUser(u.id, u.username),
+          className: "px-4 py-2 rounded-lg text-sm font-semibold border border-red-500/40 text-red-300 bg-red-500/10 hover:bg-red-500/20 hover:border-red-500/60 transition-all"
+        },
+        "Delete"
+      ))
+    ))), users.length === 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-12" }, /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "No users found")));
+  }
   function App() {
+    const [user, setUser] = (0, import_react.useState)(null);
+    const [authLoading, setAuthLoading] = (0, import_react.useState)(true);
+    const [authView, setAuthView] = (0, import_react.useState)("login");
     const [apiKey, setApiKey] = (0, import_react.useState)("");
     const freekeyFetchAttempted = (0, import_react.useRef)(false);
     const [active, setActive] = (0, import_react.useState)("dashboard");
@@ -22640,6 +22732,24 @@
       });
       setLibraryDuplicates(libraryCandidates.duplicates);
     }, [libraryCandidates]);
+    (0, import_react.useEffect)(() => {
+      const checkAuth = async () => {
+        try {
+          const response = await fetch("/api/auth/me", {
+            credentials: "include"
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setUser(data.user);
+          }
+        } catch (err) {
+          console.log("Not authenticated");
+        } finally {
+          setAuthLoading(false);
+        }
+      };
+      checkAuth();
+    }, []);
     (0, import_react.useEffect)(() => {
       const loadData = async () => {
         try {
@@ -23507,6 +23617,154 @@
         showToast("Failed to restore backup: " + err.message, "error");
       }
     };
+    const handleLogin = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const username = formData.get("username");
+      const password = formData.get("password");
+      try {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+          credentials: "include"
+        });
+        const data = await response.json();
+        if (response.ok) {
+          setUser(data.user);
+          showToast(`Welcome back, ${data.user.username}!`, "success");
+        } else {
+          showToast(data.error || "Login failed", "error");
+        }
+      } catch (err) {
+        showToast("Login failed: " + err.message, "error");
+      }
+    };
+    const handleRegister = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const username = formData.get("username");
+      const email = formData.get("email");
+      const password = formData.get("password");
+      const confirmPassword = formData.get("confirmPassword");
+      if (password !== confirmPassword) {
+        showToast("Passwords don't match", "error");
+        return;
+      }
+      try {
+        const response = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, email, password }),
+          credentials: "include"
+        });
+        const data = await response.json();
+        if (response.ok) {
+          setUser(data.user);
+          showToast(`Welcome, ${data.user.username}!`, "success");
+        } else {
+          showToast(data.error || "Registration failed", "error");
+        }
+      } catch (err) {
+        showToast("Registration failed: " + err.message, "error");
+      }
+    };
+    const handleLogout = async () => {
+      try {
+        await fetch("/api/auth/logout", {
+          method: "POST",
+          credentials: "include"
+        });
+        setUser(null);
+        showToast("Logged out successfully", "success");
+      } catch (err) {
+        showToast("Logout failed: " + err.message, "error");
+      }
+    };
+    if (authLoading) {
+      return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-h-screen bg-midnight flex items-center justify-center" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "inline-block h-16 w-16 animate-spin rounded-full border-4 border-solid border-aurora border-r-transparent mb-4" }), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-300" }, "Loading...")));
+    }
+    if (!user) {
+      return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-h-screen bg-midnight flex items-center justify-center p-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "w-full max-w-md" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center mb-8" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-aurora via-sky-400 to-sky-500 text-midnight text-3xl font-bold shadow-glow mb-4" }, "M3"), /* @__PURE__ */ import_react.default.createElement("h1", { className: "text-4xl font-bold bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent" }, "M3U Studio"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400 mt-2" }, "Build stunning IPTV playlists with TMDB")), /* @__PURE__ */ import_react.default.createElement("div", { className: "bg-slate-900/50 border border-white/10 rounded-2xl p-8 backdrop-blur-xl" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2 mb-6" }, /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          onClick: () => setAuthView("login"),
+          className: `flex-1 py-2 px-4 rounded-lg font-semibold transition-all ${authView === "login" ? "bg-aurora text-midnight" : "bg-slate-800/60 text-slate-300 hover:bg-slate-800"}`
+        },
+        "Login"
+      ), /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          onClick: () => setAuthView("register"),
+          className: `flex-1 py-2 px-4 rounded-lg font-semibold transition-all ${authView === "register" ? "bg-aurora text-midnight" : "bg-slate-800/60 text-slate-300 hover:bg-slate-800"}`
+        },
+        "Register"
+      )), authView === "login" ? /* @__PURE__ */ import_react.default.createElement("form", { onSubmit: handleLogin, className: "space-y-4" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-sm font-medium text-slate-300 mb-2" }, "Username or Email"), /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          name: "username",
+          type: "text",
+          required: true,
+          className: inputClass,
+          placeholder: "Enter your username or email"
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-sm font-medium text-slate-300 mb-2" }, "Password"), /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          name: "password",
+          type: "password",
+          required: true,
+          className: inputClass,
+          placeholder: "Enter your password"
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("button", { type: "submit", className: `${primaryButton} w-full` }, "Login")) : /* @__PURE__ */ import_react.default.createElement("form", { onSubmit: handleRegister, className: "space-y-4" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-sm font-medium text-slate-300 mb-2" }, "Username"), /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          name: "username",
+          type: "text",
+          required: true,
+          className: inputClass,
+          placeholder: "Choose a username"
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-sm font-medium text-slate-300 mb-2" }, "Email"), /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          name: "email",
+          type: "email",
+          required: true,
+          className: inputClass,
+          placeholder: "Enter your email"
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-sm font-medium text-slate-300 mb-2" }, "Password"), /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          name: "password",
+          type: "password",
+          required: true,
+          minLength: "6",
+          className: inputClass,
+          placeholder: "Choose a password (min 6 characters)"
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block text-sm font-medium text-slate-300 mb-2" }, "Confirm Password"), /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          name: "confirmPassword",
+          type: "password",
+          required: true,
+          minLength: "6",
+          className: inputClass,
+          placeholder: "Confirm your password"
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("button", { type: "submit", className: `${primaryButton} w-full` }, "Register")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-6 pt-6 border-t border-white/10 text-center text-sm text-slate-400" }, /* @__PURE__ */ import_react.default.createElement("p", null, "Default admin account:"), /* @__PURE__ */ import_react.default.createElement("p", { className: "font-mono text-xs mt-1" }, "username: ", /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora" }, "admin"), " / password: ", /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora" }, "admin123"))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed bottom-6 right-6 z-50 space-y-3 max-w-md" }, toasts.map((toast) => /* @__PURE__ */ import_react.default.createElement(
+        "div",
+        {
+          key: toast.id,
+          className: `flex items-start gap-3 p-4 rounded-xl shadow-2xl backdrop-blur-xl border transform transition-all duration-300 ${toast.type === "success" ? "bg-green-500/20 border-green-500/40 text-green-100" : toast.type === "error" ? "bg-red-500/20 border-red-500/40 text-red-100" : "bg-aurora/20 border-aurora/40 text-white"}`
+        },
+        /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xl" }, toast.type === "success" ? "\u2713" : toast.type === "error" ? "\u2717" : "\u2139"),
+        /* @__PURE__ */ import_react.default.createElement("span", { className: "flex-1 text-sm font-medium" }, toast.message)
+      ))));
+    }
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-h-screen text-slate-100 pb-16" }, /* @__PURE__ */ import_react.default.createElement("header", { className: "sticky top-0 z-30 border-b border-white/10 bg-slate-950/90 backdrop-blur-xl shadow-xl" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "py-6 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-aurora via-sky-400 to-sky-500 text-midnight text-xl font-bold shadow-glow" }, "M3"), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-2xl md:text-3xl font-bold bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent" }, "M3U Studio"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, "Build stunning IPTV playlists with TMDB"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col sm:flex-row items-stretch sm:items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "relative flex-1 sm:w-80" }, /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
@@ -23523,7 +23781,23 @@
         onClick: () => navigator.clipboard.writeText(apiKey)
       },
       "Copy"
-    )), playlistSyncStatus !== "idle" && /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/60 text-xs font-medium" }, playlistSyncStatus === "syncing" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora animate-pulse" }, "\u25CF Syncing..."), playlistSyncStatus === "saved" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-green-400" }, "\u25CF Saved"), playlistSyncStatus === "error" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-red-400" }, "\u25CF Error")))), /* @__PURE__ */ import_react.default.createElement("nav", { className: "pb-4 flex gap-2 overflow-x-auto scrollbar-hide" }, /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\uFFFD", active: active === "dashboard", onClick: () => setActive("dashboard") }, "Dashboard"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\uFFFD\u{1F4FA}", active: active === "channels", onClick: () => setActive("channels") }, "Channels", channels.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, channels.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4E1}", active: active === "epg", onClick: () => setActive("epg") }, "EPG", epgSources.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, epgSources.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F3AC}", active: active === "shows", onClick: () => setActive("shows") }, "TV Shows", groupedShows.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, groupedShows.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F3A5}", active: active === "movies", onClick: () => setActive("movies") }, "Movies", movies.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, movies.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4C2}", active: active === "library", onClick: () => setActive("library") }, "Library"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4CB}", active: active === "playlist", onClick: () => setActive("playlist") }, "Export")))), /* @__PURE__ */ import_react.default.createElement("main", { className: "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 space-y-8" }, active === "dashboard" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h2", { className: "text-3xl font-bold text-white" }, "Dashboard"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400 mt-1" }, "Overview of your IPTV management system"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" }, /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F4FA}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-blue-500/20 text-blue-300" }, "Live")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, channels.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Live Channels"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, channelImports.length, " playlist", channelImports.length !== 1 ? "s" : "", " imported"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F3AC}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-purple-500/20 text-purple-300" }, "Series")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, groupedShows.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "TV Shows"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, groupedShows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0), " total episodes"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-pink-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-pink-500/20 text-pink-300" }, "VOD")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, movies.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Movies"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, "On-demand content"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-aurora/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F4CB}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-aurora/20 text-aurora" }, "Total")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, channels.length + groupedShows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0) + movies.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Total Entries"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, "In playlist")))), /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, { subtitle: "Breakdown of your live channels by category" }, "\u{1F4CA} Channel Distribution"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" }, (() => {
+    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative group" }, /* @__PURE__ */ import_react.default.createElement("button", { className: `${secondaryButton} flex items-center gap-2` }, /* @__PURE__ */ import_react.default.createElement("span", { className: "inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-aurora to-sky-500 text-midnight text-sm font-bold" }, user.username.charAt(0).toUpperCase()), /* @__PURE__ */ import_react.default.createElement("span", { className: "hidden sm:inline" }, user.username), user.role === "admin" && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs font-bold rounded bg-amber-500/20 text-amber-300 border border-amber-500/30" }, "ADMIN"), /* @__PURE__ */ import_react.default.createElement("svg", { className: "w-4 h-4", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24" }, /* @__PURE__ */ import_react.default.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M19 9l-7 7-7-7" }))), /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute right-0 mt-2 w-56 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "bg-slate-900 border border-white/10 rounded-xl shadow-2xl py-2 backdrop-blur-xl" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "px-4 py-2 border-b border-white/10" }, /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm font-semibold text-white" }, user.username), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400" }, user.email)), user.role === "admin" && /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: () => setActive("users"),
+        className: "w-full px-4 py-2 text-left text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2"
+      },
+      /* @__PURE__ */ import_react.default.createElement("svg", { className: "w-4 h-4", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24" }, /* @__PURE__ */ import_react.default.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" })),
+      "Manage Users"
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: handleLogout,
+        className: "w-full px-4 py-2 text-left text-sm text-red-300 hover:bg-red-500/10 hover:text-red-200 transition-colors flex items-center gap-2"
+      },
+      /* @__PURE__ */ import_react.default.createElement("svg", { className: "w-4 h-4", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24" }, /* @__PURE__ */ import_react.default.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" })),
+      "Logout"
+    )))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-3 pt-4 border-t border-white/10" }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: () => setActive("channels"), className: `inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${active === "channels" ? "bg-aurora text-midnight" : "bg-slate-800/60 text-slate-300 hover:bg-slate-800"}` }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u{1F4FA}"), " ", channels.length, " Channel", channels.length !== 1 ? "s" : ""), /* @__PURE__ */ import_react.default.createElement("button", { onClick: () => setActive("shows"), className: `inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${active === "shows" ? "bg-aurora text-midnight" : "bg-slate-800/60 text-slate-300 hover:bg-slate-800"}` }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u{1F4FA}"), " ", groupedShows.length, " Show", groupedShows.length !== 1 ? "s" : ""), /* @__PURE__ */ import_react.default.createElement("button", { onClick: () => setActive("movies"), className: `inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${active === "movies" ? "bg-aurora text-midnight" : "bg-slate-800/60 text-slate-300 hover:bg-slate-800"}` }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u{1F3AC}"), " ", movies.length, " Movie", movies.length !== 1 ? "s" : ""), playlistSyncStatus !== "idle" && /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800/60 text-xs font-medium" }, playlistSyncStatus === "syncing" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora animate-pulse" }, "\u25CF Syncing..."), playlistSyncStatus === "saved" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-green-400" }, "\u25CF Saved"), playlistSyncStatus === "error" && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-red-400" }, "\u25CF Error"))), /* @__PURE__ */ import_react.default.createElement("nav", { className: "pb-4 flex gap-2 overflow-x-auto scrollbar-hide" }, /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F3E0}", active: active === "dashboard", onClick: () => setActive("dashboard") }, "Dashboard"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4FA}", active: active === "channels", onClick: () => setActive("channels") }, "Channels", channels.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, channels.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\uFFFD", active: active === "epg", onClick: () => setActive("epg") }, "EPG", epgSources.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, epgSources.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F3AC}", active: active === "shows", onClick: () => setActive("shows") }, "TV Shows", groupedShows.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, groupedShows.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F3A5}", active: active === "movies", onClick: () => setActive("movies") }, "Movies", movies.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "px-2 py-0.5 text-xs rounded-full bg-white/20" }, movies.length)), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4C2}", active: active === "library", onClick: () => setActive("library") }, "Library"), /* @__PURE__ */ import_react.default.createElement(TabBtn, { icon: "\u{1F4CB}", active: active === "playlist", onClick: () => setActive("playlist") }, "Export")))), /* @__PURE__ */ import_react.default.createElement("main", { className: "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 space-y-8" }, active === "dashboard" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h2", { className: "text-3xl font-bold text-white" }, "Dashboard"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400 mt-1" }, "Overview of your IPTV management system"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" }, /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F4FA}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-blue-500/20 text-blue-300" }, "Live")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, channels.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Live Channels"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, channelImports.length, " playlist", channelImports.length !== 1 ? "s" : "", " imported"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F3AC}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-purple-500/20 text-purple-300" }, "Series")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, groupedShows.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "TV Shows"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, groupedShows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0), " total episodes"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-pink-500/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-pink-500/20 text-pink-300" }, "VOD")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, movies.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Movies"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, "On-demand content"))), /* @__PURE__ */ import_react.default.createElement(Card, { className: "relative overflow-hidden" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-aurora/20 to-transparent rounded-full blur-2xl" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between mb-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-4xl" }, "\u{1F4CB}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold px-3 py-1 rounded-full bg-aurora/20 text-aurora" }, "Total")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-3xl font-bold text-white mb-1" }, channels.length + groupedShows.reduce((sum, show) => sum + (show.seasons?.reduce((s, season) => s + (season.episodes?.length || 0), 0) || 0), 0) + movies.length), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400" }, "Total Entries"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 text-xs text-slate-500" }, "In playlist")))), /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, { subtitle: "Breakdown of your live channels by category" }, "\u{1F4CA} Channel Distribution"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" }, (() => {
       const groups = {};
       channels.forEach((ch) => {
         const group = ch.group || "Uncategorized";
@@ -24368,7 +24642,7 @@
           onChange: (e) => setMoviePatch(movie.id, { overview: e.target.value })
         }
       )))))));
-    }))), movies.length === 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No Movies Yet"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "Search and add your first movie to get started")))), active === "playlist" && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Playlist Preview (.m3u)"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-3" }, /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: () => downloadText("playlist.m3u", m3u) }, "Download .m3u"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => navigator.clipboard.writeText(m3u) }, "Copy"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted playlist URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: playlistUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(playlistUrl) }, "Copy URL")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, playlistSyncStatus === "syncing" && "Uploading latest playlist\u2026", playlistSyncStatus === "saved" && "Playlist synced. Use this URL in any IPTV player.", playlistSyncStatus === "error" && "Sync failed \u2014 the download button still gives you a local file.", playlistSyncStatus === "idle" && "Playlist ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-6 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted EPG/XMLTV URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: epgUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(epgUrl) }, "Copy URL"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => downloadText("epg.xml", epg) }, "Download XML")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, epgSyncStatus === "syncing" && "Uploading latest EPG\u2026", epgSyncStatus === "saved" && "EPG synced. Use this URL in IPTV players that support EPG.", epgSyncStatus === "error" && "EPG sync failed \u2014 the download button still gives you a local file.", epgSyncStatus === "idle" && "EPG ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("textarea", { className: `${inputClass} h-96 font-mono text-sm`, value: m3u, onChange: () => {
+    }))), movies.length === 0 && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-center py-16" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-6xl mb-4" }, "\u{1F3A5}"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xl font-semibold text-white mb-2" }, "No Movies Yet"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-slate-400" }, "Search and add your first movie to get started")))), active === "users" && user?.role === "admin" && /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-6" }, /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "User Management"), /* @__PURE__ */ import_react.default.createElement(UserManagement, { showToast }))), active === "playlist" && /* @__PURE__ */ import_react.default.createElement(Card, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between" }, /* @__PURE__ */ import_react.default.createElement(SectionTitle, null, "Playlist Preview (.m3u)"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-3" }, /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: () => downloadText("playlist.m3u", m3u) }, "Download .m3u"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => navigator.clipboard.writeText(m3u) }, "Copy"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted playlist URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: playlistUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(playlistUrl) }, "Copy URL")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, playlistSyncStatus === "syncing" && "Uploading latest playlist\u2026", playlistSyncStatus === "saved" && "Playlist synced. Use this URL in any IPTV player.", playlistSyncStatus === "error" && "Sync failed \u2014 the download button still gives you a local file.", playlistSyncStatus === "idle" && "Playlist ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-6 space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs uppercase tracking-wide text-slate-400" }, "Hosted EPG/XMLTV URL"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" }, /* @__PURE__ */ import_react.default.createElement("input", { className: `${inputClass} sm:flex-1`, readOnly: true, value: epgUrl }), /* @__PURE__ */ import_react.default.createElement("button", { className: secondaryButton, onClick: () => navigator.clipboard.writeText(epgUrl) }, "Copy URL"), /* @__PURE__ */ import_react.default.createElement("button", { className: ghostButton, onClick: () => downloadText("epg.xml", epg) }, "Download XML")), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, epgSyncStatus === "syncing" && "Uploading latest EPG\u2026", epgSyncStatus === "saved" && "EPG synced. Use this URL in IPTV players that support EPG.", epgSyncStatus === "error" && "EPG sync failed \u2014 the download button still gives you a local file.", epgSyncStatus === "idle" && "EPG ready. Changes auto-sync to the URL above.")), /* @__PURE__ */ import_react.default.createElement("textarea", { className: `${inputClass} h-96 font-mono text-sm`, value: m3u, onChange: () => {
     } }), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-xs text-slate-400 mt-3" }, "Entries use #EXTINF with tvg-id, tvg-logo, group-title, and tvg-chno when provided."))), /* @__PURE__ */ import_react.default.createElement("footer", { className: "py-12 text-center text-xs text-slate-500/80" }, "Built with \u2764\uFE0F \u2013 Local-only demo. Add auth & backend before shipping."), /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed bottom-6 right-6 z-50 space-y-3 max-w-md" }, toasts.map((toast) => /* @__PURE__ */ import_react.default.createElement(
       "div",
       {
