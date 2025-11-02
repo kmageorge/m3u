@@ -23077,8 +23077,8 @@
     (0, import_react.useEffect)(() => {
       const ensureLocalEpgSource = async () => {
         try {
-          const resp = await fetch("/epg-dataset/README.md", { method: "HEAD" });
-          if (!resp.ok) return;
+          const resp = await fetch("/epg-dataset/README.md", { method: "HEAD" }).catch(() => null);
+          if (!resp || !resp.ok) return;
           setEpgSources((prev) => {
             const exists = prev.find((s) => s.id === "epg-dataset");
             if (!exists) {

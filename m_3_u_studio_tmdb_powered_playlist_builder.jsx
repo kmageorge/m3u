@@ -1891,9 +1891,9 @@ export default function App() {
   useEffect(() => {
     const ensureLocalEpgSource = async () => {
       try {
-        // Probe a known file from the dataset served at /epg-dataset
-        const resp = await fetch('/epg-dataset/README.md', { method: 'HEAD' });
-        if (!resp.ok) return; // dataset not present
+        // Probe a known file from the dataset served at /epg-dataset (silently)
+        const resp = await fetch('/epg-dataset/README.md', { method: 'HEAD' }).catch(() => null);
+        if (!resp || !resp.ok) return; // dataset not present
         // If dataset present, ensure a source entry exists and is enabled
         setEpgSources(prev => {
           const exists = prev.find(s => s.id === 'epg-dataset');
