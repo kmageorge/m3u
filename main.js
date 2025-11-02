@@ -22520,7 +22520,7 @@
   }
   function VideoPlayer({ url, playerRef }) {
     const videoRef = (0, import_react.useRef)(null);
-    const fallbackRef = (0, import_react.useRef)({ tried: false, transcodeId: null });
+    const fallbackRef = (0, import_react.useRef)({ tried: false, triedProxy: false, transcodeId: null });
     (0, import_react.useEffect)(() => {
       if (!videoRef.current || !url) return;
       const isSafari = !!(window.videojs && window.videojs.browser && window.videojs.browser.IS_SAFARI);
@@ -22552,7 +22552,17 @@
         });
       }
       setSource(url);
-      async function tryTranscode() {
+      async function tryProxyThenTranscode() {
+        if (!fallbackRef.current.triedProxy && !(/\.m3u8($|\?)/.test(url) || /\.mpd($|\?)/.test(url))) {
+          fallbackRef.current.triedProxy = true;
+          try {
+            const proxied = `/proxy?url=${encodeURIComponent(url)}`;
+            setSource(proxied);
+            await player.play();
+            return;
+          } catch (e) {
+          }
+        }
         if (fallbackRef.current.tried) return;
         fallbackRef.current.tried = true;
         try {
@@ -22577,7 +22587,7 @@
         } catch {
         }
         player.on("error", () => {
-          tryTranscode();
+          tryProxyThenTranscode();
         });
       });
       playerRef.current = player;

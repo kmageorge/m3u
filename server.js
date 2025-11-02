@@ -3,6 +3,7 @@ const fs = require("fs");
 const os = require("os");
 const crypto = require("crypto");
 const { spawn } = require("child_process");
+const { Readable } = require("stream");
 const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
@@ -694,22 +695,45 @@ app.get("/proxy", async (req, res) => {
   const timeout = setTimeout(() => controller.abort(), PROXY_TIMEOUT);
 
   try {
+    const forwardHeaders = {
+      "user-agent": req.headers["user-agent"] || "m3u-studio-proxy/1.0",
+      "range": req.headers["range"] || undefined,
+      "accept": req.headers["accept"] || undefined,
+      "accept-encoding": req.headers["accept-encoding"] || undefined,
+      "referer": req.headers["referer"] || undefined,
+      "origin": req.headers["origin"] || undefined
+    };
+
     const upstream = await fetch(parsed.toString(), {
       signal: controller.signal,
-      headers: {
-        "user-agent": "m3u-studio-proxy/1.0"
-      }
+      headers: Object.fromEntries(Object.entries(forwardHeaders).filter(([,v]) => !!v))
     });
 
-    const body = await upstream.text();
+    // Propagate status and key headers
     res.status(upstream.status);
+    const headersToCopy = [
+      "content-type",
+      "content-length",
+      "accept-ranges",
+      "content-range",
+      "cache-control",
+      "expires",
+      "pragma"
+    ];
+    headersToCopy.forEach(h => {
+      const v = upstream.headers.get(h);
+      if (v) res.set(h, v);
+    });
+    // Allow use by the browser
+    res.set("Access-Control-Allow-Origin", "*");
 
-    const contentType = upstream.headers.get("content-type");
-    if (contentType) {
-      res.set("Content-Type", contentType);
+    if (upstream.body) {
+      const nodeStream = Readable.fromWeb(upstream.body);
+      nodeStream.on("error", () => res.destroy());
+      nodeStream.pipe(res);
+    } else {
+      res.end();
     }
-
-    res.send(body);
   } catch (err) {
     if (err.name === "AbortError") {
       res.status(504).send("Upstream request timed out");
@@ -827,7 +851,22 @@ setInterval(() => {
   }
 }, 60 * 1000).unref();
 
-app.post("/api/transcode/start", express.json(), (req, res) => {
+// Wait until a file exists (best-effort) before responding
+function waitForFile(p, timeoutMs = 8000, intervalMs = 250) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = () => {
+      try {
+        if (fs.existsSync(p)) return resolve(true);
+      } catch {}
+      if (Date.now() - start >= timeoutMs) return resolve(false);
+      setTimeout(check, intervalMs);
+    };
+    check();
+  });
+}
+
+app.post("/api/transcode/start", express.json(), async (req, res) => {
   const src = (req.body && req.body.src) || "";
   if (!src) return res.status(400).json({ error: "src required" });
 
@@ -879,6 +918,8 @@ app.post("/api/transcode/start", express.json(), (req, res) => {
     setTimeout(() => cleanupSession(id), 2 * 60 * 1000).unref();
   });
 
+  const indexPath = path.join(outDir, "index.m3u8");
+  await waitForFile(indexPath, Number(process.env.TRANSCODE_READY_TIMEOUT || 8000));
   res.json({ id, playlistUrl: `/transcode/${id}/index.m3u8` });
 });
 

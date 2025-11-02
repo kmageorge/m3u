@@ -92,7 +92,7 @@
     function VideoPlayer({ url, title, onClose }) {
       const videoRef = useRef(null);
       const playerRef = useRef(null);
-      const fallbackRef = useRef({ tried: false, transcodeId: null });
+  const fallbackRef = useRef({ tried: false, triedProxy: false, transcodeId: null });
 
       useEffect(() => {
         if (!videoRef.current || !url) return;
@@ -131,7 +131,21 @@
 
         setSource(url);
 
-        async function tryTranscode() {
+        async function tryProxyThenTranscode() {
+          // First attempt: try CORS-safe proxy for direct sources (skip for HLS/DASH)
+          if (!fallbackRef.current.triedProxy && !(/\.m3u8($|\?)/.test(url) || /\.mpd($|\?)/.test(url))) {
+            fallbackRef.current.triedProxy = true;
+            try {
+              const proxied = `/proxy?url=${encodeURIComponent(url)}`;
+              setSource(proxied);
+              await player.play();
+              return; // success
+            } catch (e) {
+              // fall through to transcode
+            }
+          }
+
+          // Second attempt: server-side transcode to HLS
           if (fallbackRef.current.tried) return;
           fallbackRef.current.tried = true;
           try {
@@ -155,9 +169,9 @@
             player.muted(false);
             player.volume(1);
           } catch {}
-          // If playback errors (codec not supported), try server-side transcode
+          // Attach error handler as early as possible and retry via proxy/transcode
           player.on('error', () => {
-            tryTranscode();
+            tryProxyThenTranscode();
           });
         });
 
