@@ -1126,6 +1126,9 @@ app.get('/player_api.php', async (req, res) => {
           added: '',
           category_id: catId,
           tvg_id: c.id || '',
+          direct_source: c.url || '',
+          tv_archive: 0,
+          tv_archive_duration: 0
         };
         if (!byCat.has(catId)) byCat.set(catId, []);
         byCat.get(catId).push(item);
@@ -1141,8 +1144,9 @@ app.get('/player_api.php', async (req, res) => {
         rating: String(m.rating || ''),
         added: '',
         category_id: genId('vod:' + (m.group || 'Movies')),
-        container_extension: 'mp4',
-        plot: m.overview || ''
+        container_extension: (m.url || '').split('?')[0].split('.').pop() || 'mp4',
+        plot: m.overview || '',
+        direct_source: m.url || ''
       }));
       return res.json(out);
     }
@@ -1183,6 +1187,50 @@ app.get('/player_api.php', async (req, res) => {
       });
       const seasons = (series.seasons || []).map(sea => ({ season_number: sea.season }));
       return res.json({ episodes, info, seasons });
+    }
+
+    if (action === 'get_vod_info') {
+      const vod_id = parseInt(req.query.vod_id, 10);
+      const m = movies.find(mm => genId('vod:' + (mm.url || mm.tmdbId || mm.title)) === vod_id);
+      if (!m) return res.json({ info: {}, movie_data: {} });
+      const info = {
+        movie_image: m.poster || '',
+        cover_big: m.backdrop || m.poster || '',
+        plot: m.overview || '',
+        releasedate: m.releaseDate || (m.year ? String(m.year) : ''),
+        genre: m.genres || '',
+        duration_secs: m.runtime ? m.runtime * 60 : 0,
+        duration: m.runtime ? `${m.runtime} min` : '',
+        cast: m.cast || '',
+        director: m.director || '',
+        country: m.country || '',
+        youtube_trailer: m.trailerUrl || ''
+      };
+      const movie_data = {
+        stream_id: vod_id,
+        name: m.title || 'Movie',
+        added: '',
+        category_id: genId('vod:' + (m.group || 'Movies')),
+        container_extension: (m.url || '').split('?')[0].split('.').pop() || 'mp4',
+        direct_source: m.url || ''
+      };
+      return res.json({ info, movie_data });
+    }
+
+    if (action === 'get_short_epg') {
+      // Basic placeholder EPG: current 24h window
+      const stream_id = parseInt(req.query.stream_id, 10);
+      const now = Math.floor(Date.now() / 1000);
+      const end = now + 24 * 3600;
+      return res.json([
+        {
+          id: stream_id,
+          title: 'Live Stream',
+          start: now,
+          end,
+          description: 'Currently airing',
+        }
+      ]);
     }
 
     // Fallback unknown action

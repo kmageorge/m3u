@@ -745,10 +745,18 @@
                     )}
                     <div className="p-4">
                       <h3 className="text-white font-semibold truncate mb-1">{movie.title}</h3>
-                      <div className="flex items-center gap-2 text-xs text-slate-400 mb-3">
+                      <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
                         {movie.year && <span>{movie.year}</span>}
-                        {movie.rating > 0 && <span>⭐ {movie.rating.toFixed(1)}</span>}
+                        {movie.rating > 0 && <span>⭐ {Number(movie.rating).toFixed(1)}</span>}
+                        {movie.certification && <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px]">{movie.certification}</span>}
+                        {movie.runtime && <span>{movie.runtime}m</span>}
                       </div>
+                      {movie.genres && (
+                        <div className="text-xs text-slate-400 line-clamp-1 mb-2">{movie.genres}</div>
+                      )}
+                      {movie.director && (
+                        <div className="text-[11px] text-slate-500 mb-2">Dir. {movie.director}</div>
+                      )}
                       <button className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-all font-semibold text-sm">
                         ▶️ Play
                       </button>
@@ -804,10 +812,14 @@
                         )}
                         <div className="p-4">
                           <h3 className="text-white font-semibold truncate mb-1">{show.name}</h3>
+                          <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
+                            {show.year && <span>{show.year}</span>}
+                            {show.rating > 0 && <span>⭐ {Number(show.rating).toFixed(1)}</span>}
+                            {show.status && <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px]">{show.status}</span>}
+                            {show.episodeRunTime && <span>{show.episodeRunTime}m</span>}
+                          </div>
                           {show.genres && (
-                            <div className="flex items-center gap-2 text-xs text-slate-400 mb-2 truncate">
-                              {show.genres.split(', ').slice(0,2).map(g => (<span key={g}>{g}</span>))}
-                            </div>
+                            <div className="text-xs text-slate-400 line-clamp-1 mb-2">{show.genres}</div>
                           )}
                           <button className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-all font-semibold text-sm">
                             View Seasons
