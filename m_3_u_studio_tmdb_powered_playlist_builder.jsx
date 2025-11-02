@@ -1280,16 +1280,22 @@ function VideoPlayer({ url, playerRef }) {
     if (!videoRef.current || !url) return;
 
     // Initialize Video.js player
+    const isSafari = !!(window.videojs && window.videojs.browser && window.videojs.browser.IS_SAFARI);
     const player = window.videojs(videoRef.current, {
       controls: true,
       autoplay: false,
+      muted: false,
       preload: 'auto',
       fluid: true,
       responsive: true,
       aspectRatio: '16:9',
+      controlBar: {
+        volumePanel: { inline: false },
+        audioTrackButton: true
+      },
       html5: {
         vhs: {
-          overrideNative: true
+          overrideNative: !isSafari
         },
         nativeVideoTracks: false,
         nativeAudioTracks: false,
@@ -1302,6 +1308,13 @@ function VideoPlayer({ url, playerRef }) {
       type: url.includes('.m3u8') ? 'application/x-mpegURL' 
            : url.includes('.mpd') ? 'application/dash+xml'
            : 'video/mp4'
+    });
+
+    player.ready(() => {
+      try {
+        player.muted(false);
+        player.volume(1);
+      } catch {}
     });
 
     playerRef.current = player;
@@ -1319,6 +1332,7 @@ function VideoPlayer({ url, playerRef }) {
         <video
           ref={videoRef}
           className="video-js vjs-big-play-centered vjs-theme-fantasy"
+          crossOrigin="anonymous"
           playsInline
         />
       </div>

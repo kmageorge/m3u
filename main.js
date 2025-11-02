@@ -22522,16 +22522,22 @@
     const videoRef = (0, import_react.useRef)(null);
     (0, import_react.useEffect)(() => {
       if (!videoRef.current || !url) return;
+      const isSafari = !!(window.videojs && window.videojs.browser && window.videojs.browser.IS_SAFARI);
       const player = window.videojs(videoRef.current, {
         controls: true,
         autoplay: false,
+        muted: false,
         preload: "auto",
         fluid: true,
         responsive: true,
         aspectRatio: "16:9",
+        controlBar: {
+          volumePanel: { inline: false },
+          audioTrackButton: true
+        },
         html5: {
           vhs: {
-            overrideNative: true
+            overrideNative: !isSafari
           },
           nativeVideoTracks: false,
           nativeAudioTracks: false,
@@ -22541,6 +22547,13 @@
       player.src({
         src: url,
         type: url.includes(".m3u8") ? "application/x-mpegURL" : url.includes(".mpd") ? "application/dash+xml" : "video/mp4"
+      });
+      player.ready(() => {
+        try {
+          player.muted(false);
+          player.volume(1);
+        } catch {
+        }
       });
       playerRef.current = player;
       return () => {
@@ -22554,6 +22567,7 @@
       {
         ref: videoRef,
         className: "video-js vjs-big-play-centered vjs-theme-fantasy",
+        crossOrigin: "anonymous",
         playsInline: true
       }
     )));
