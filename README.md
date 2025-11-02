@@ -48,6 +48,9 @@ First‑run admin:
   - Build a clean .m3u with channels + library items
   - Hosted playlist endpoint `/playlist.m3u` and EPG endpoint `/epg.xml`
   - Copy or download directly from the UI
+ - Playback
+   - Built-in web player (at `/player`) with Channels/Movies/Shows and a modal player
+   - Automatic ffmpeg HLS transcode fallback for broader codec support
 - Admin Settings (Danger Zone)
   - Delete All Channels (also clears imported playlists)
   - Delete All TV Shows
@@ -133,6 +136,11 @@ Utilities
 - GET `/proxy?url=...` – basic HTTP(S) proxy with timeout
 - GET `/api/logos?query=...&top=8` – channel logos (requires Bing API key)
 
+Transcoding
+- POST `/api/transcode/start` – { src } → { id, playlistUrl }
+- POST `/api/transcode/stop` – { id }
+- GET `/transcode/:id/:file` – serves HLS playlist and segments
+
 
 ## Deployment
 
@@ -168,6 +176,22 @@ location / {
 
 Backups
 - Regularly back up `m3u_studio.db` while the service is stopped or use SQLite‑safe snapshotting.
+
+### Transcode fallback (ffmpeg)
+
+To maximize audio/video compatibility, the player can fall back to a server-side HLS transcode powered by ffmpeg when direct playback fails (e.g., unsupported codecs like E-AC-3/DTS in some browsers):
+
+- The web player attempts direct playback first; on error, it requests `/api/transcode/start` and switches to the returned HLS stream.
+- Transcode sessions auto-clean after inactivity; closing the modal stops the active session.
+
+Environment variables to tune transcoding:
+- `TRANSCODE_COPY_VIDEO=1` – try video copy instead of re-encode (if compatible)
+- `TRANSCODE_COPY_AUDIO=1` – try audio copy instead of AAC
+- `FFMPEG_PRESET=veryfast` – x264 preset (ultrafast…slower)
+- `HLS_TIME=4` – segment duration seconds
+- `HLS_LIST_SIZE=6` – number of segments in playlist
+
+Note: ffmpeg must be installed and available on the server PATH.
 
 
 ## Using the app

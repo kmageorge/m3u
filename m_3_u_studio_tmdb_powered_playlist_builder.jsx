@@ -1275,13 +1275,14 @@ function UserManagement({ showToast }) {
 // ---------- Video Player Component ----------
 function VideoPlayer({ url, playerRef }) {
   const videoRef = useRef(null);
+  const fallbackRef = useRef({ tried: false, transcodeId: null });
 
   useEffect(() => {
     if (!videoRef.current || !url) return;
 
     // Initialize Video.js player
     const isSafari = !!(window.videojs && window.videojs.browser && window.videojs.browser.IS_SAFARI);
-    const player = window.videojs(videoRef.current, {
+  const player = window.videojs(videoRef.current, {
       controls: true,
       autoplay: false,
       muted: false,
@@ -1303,18 +1304,45 @@ function VideoPlayer({ url, playerRef }) {
       }
     });
 
-    player.src({
-      src: url,
-      type: url.includes('.m3u8') ? 'application/x-mpegURL' 
-           : url.includes('.mpd') ? 'application/dash+xml'
-           : 'video/mp4'
-    });
+    function setSource(u) {
+      player.src({
+        src: u,
+        type: u.includes('.m3u8') ? 'application/x-mpegURL' 
+             : u.includes('.mpd') ? 'application/dash+xml'
+             : 'video/mp4'
+      });
+    }
+
+    setSource(url);
+
+    async function tryTranscode() {
+      if (fallbackRef.current.tried) return;
+      fallbackRef.current.tried = true;
+      try {
+        const resp = await fetch('/api/transcode/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ src: url })
+        });
+        if (!resp.ok) throw new Error('transcode start failed');
+        const data = await resp.json();
+        fallbackRef.current.transcodeId = data.id;
+        setSource(data.playlistUrl);
+        player.play();
+      } catch (e) {
+        console.warn('Transcode fallback failed:', e);
+      }
+    }
 
     player.ready(() => {
       try {
         player.muted(false);
         player.volume(1);
       } catch {}
+      // On playback error (e.g., unsupported codec), attempt server-side transcode
+      player.on('error', () => {
+        tryTranscode();
+      });
     });
 
     playerRef.current = player;
@@ -1322,6 +1350,13 @@ function VideoPlayer({ url, playerRef }) {
     return () => {
       if (player && !player.isDisposed()) {
         player.dispose();
+      }
+      if (fallbackRef.current.transcodeId) {
+        fetch('/api/transcode/stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: fallbackRef.current.transcodeId })
+        }).catch(()=>{});
       }
     };
   }, [url, playerRef]);

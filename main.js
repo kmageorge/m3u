@@ -22520,6 +22520,7 @@
   }
   function VideoPlayer({ url, playerRef }) {
     const videoRef = (0, import_react.useRef)(null);
+    const fallbackRef = (0, import_react.useRef)({ tried: false, transcodeId: null });
     (0, import_react.useEffect)(() => {
       if (!videoRef.current || !url) return;
       const isSafari = !!(window.videojs && window.videojs.browser && window.videojs.browser.IS_SAFARI);
@@ -22544,21 +22545,53 @@
           nativeTextTracks: false
         }
       });
-      player.src({
-        src: url,
-        type: url.includes(".m3u8") ? "application/x-mpegURL" : url.includes(".mpd") ? "application/dash+xml" : "video/mp4"
-      });
+      function setSource(u) {
+        player.src({
+          src: u,
+          type: u.includes(".m3u8") ? "application/x-mpegURL" : u.includes(".mpd") ? "application/dash+xml" : "video/mp4"
+        });
+      }
+      setSource(url);
+      async function tryTranscode() {
+        if (fallbackRef.current.tried) return;
+        fallbackRef.current.tried = true;
+        try {
+          const resp = await fetch("/api/transcode/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ src: url })
+          });
+          if (!resp.ok) throw new Error("transcode start failed");
+          const data = await resp.json();
+          fallbackRef.current.transcodeId = data.id;
+          setSource(data.playlistUrl);
+          player.play();
+        } catch (e) {
+          console.warn("Transcode fallback failed:", e);
+        }
+      }
       player.ready(() => {
         try {
           player.muted(false);
           player.volume(1);
         } catch {
         }
+        player.on("error", () => {
+          tryTranscode();
+        });
       });
       playerRef.current = player;
       return () => {
         if (player && !player.isDisposed()) {
           player.dispose();
+        }
+        if (fallbackRef.current.transcodeId) {
+          fetch("/api/transcode/stop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: fallbackRef.current.transcodeId })
+          }).catch(() => {
+          });
         }
       };
     }, [url, playerRef]);

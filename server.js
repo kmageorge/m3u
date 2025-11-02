@@ -1,4 +1,8 @@
 const path = require("path");
+const fs = require("fs");
+const os = require("os");
+const crypto = require("crypto");
+const { spawn } = require("child_process");
 const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
@@ -790,6 +794,113 @@ app.get("/epg.xml", (req, res) => {
 // Serve player page
 app.get("/player", (req, res) => {
   res.sendFile(path.join(__dirname, "player.html"));
+});
+
+// ---------------- Transcode Service (FFmpeg) ----------------
+// In-memory registry for active transcode sessions
+const TRANSCODE_ROOT = path.join(os.tmpdir(), "m3u-transcode");
+try { fs.mkdirSync(TRANSCODE_ROOT, { recursive: true }); } catch {}
+const transcodeSessions = new Map(); // id -> { dir, proc, startedAt, lastAccess }
+
+function makeId() {
+  return crypto.randomBytes(8).toString("hex");
+}
+
+function cleanupSession(id) {
+  const sess = transcodeSessions.get(id);
+  if (!sess) return;
+  try { if (sess.proc && !sess.proc.killed) sess.proc.kill("SIGKILL"); } catch {}
+  try {
+    // best-effort delete directory
+    fs.rmSync(sess.dir, { recursive: true, force: true });
+  } catch {}
+  transcodeSessions.delete(id);
+}
+
+// Periodic idle cleanup (older than 7 minutes)
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, sess] of transcodeSessions.entries()) {
+    if ((now - (sess.lastAccess || sess.startedAt)) > 7 * 60 * 1000) {
+      cleanupSession(id);
+    }
+  }
+}, 60 * 1000).unref();
+
+app.post("/api/transcode/start", express.json(), (req, res) => {
+  const src = (req.body && req.body.src) || "";
+  if (!src) return res.status(400).json({ error: "src required" });
+
+  const id = makeId();
+  const outDir = path.join(TRANSCODE_ROOT, id);
+  try { fs.mkdirSync(outDir, { recursive: true }); } catch {}
+
+  // Build ffmpeg args for HLS with safe codecs
+  const args = [
+    "-y",
+    "-fflags", "+genpts",
+    "-reconnect", "1",
+    "-reconnect_streamed", "1",
+    "-reconnect_delay_max", "2",
+    "-i", src,
+    // Video
+    "-map", "0:v:0?",
+    "-c:v", process.env.TRANSCODE_COPY_VIDEO ? "copy" : "libx264",
+    "-preset", process.env.FFMPEG_PRESET || "veryfast",
+    "-tune", "zerolatency",
+    "-pix_fmt", "yuv420p",
+    // Audio (AAC stereo)
+    "-map", "0:a:0?",
+    "-c:a", process.env.TRANSCODE_COPY_AUDIO ? "copy" : "aac",
+    "-b:a", "128k",
+    "-ac", "2",
+    // HLS muxer
+    "-f", "hls",
+    "-hls_time", process.env.HLS_TIME || "4",
+    "-hls_list_size", process.env.HLS_LIST_SIZE || "6",
+    "-hls_flags", "delete_segments+omit_endlist+independent_segments",
+    "-hls_segment_filename", path.join(outDir, "seg_%05d.ts"),
+    path.join(outDir, "index.m3u8")
+  ];
+
+  let proc;
+  try {
+    proc = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "inherit"] });
+  } catch (err) {
+    cleanupSession(id);
+    return res.status(500).json({ error: "ffmpeg not available", details: err.message });
+  }
+
+  const session = { id, dir: outDir, proc, startedAt: Date.now(), lastAccess: Date.now() };
+  transcodeSessions.set(id, session);
+
+  proc.on("exit", () => {
+    // keep files for a short while for clients to finish
+    setTimeout(() => cleanupSession(id), 2 * 60 * 1000).unref();
+  });
+
+  res.json({ id, playlistUrl: `/transcode/${id}/index.m3u8` });
+});
+
+app.post("/api/transcode/stop", express.json(), (req, res) => {
+  const id = req.body && req.body.id;
+  if (!id || !transcodeSessions.has(id)) return res.json({ ok: true });
+  cleanupSession(id);
+  res.json({ ok: true });
+});
+
+// Serve generated HLS playlists and segments
+app.get("/transcode/:id/:file", (req, res) => {
+  const { id, file } = req.params;
+  const sess = transcodeSessions.get(id);
+  if (!sess) return res.status(404).end();
+  sess.lastAccess = Date.now();
+  const p = path.join(sess.dir, file);
+  if (!fs.existsSync(p)) return res.status(404).end();
+  // Set appropriate content type
+  if (p.endsWith(".m3u8")) res.type("application/vnd.apple.mpegurl");
+  else if (p.endsWith(".ts")) res.type("video/mp2t");
+  res.sendFile(p);
 });
 
 app.listen(PORT, () => {
