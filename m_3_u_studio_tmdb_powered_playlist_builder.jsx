@@ -1402,6 +1402,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState("");
   const freekeyFetchAttempted = useRef(false);
   const [active, setActive] = useState("dashboard");
+  const [providers, setProviders] = useState([]);
   
   // Toast notification state
   const [toasts, setToasts] = useState([]);
@@ -1788,7 +1789,7 @@ export default function App() {
         ]);
         
         // Load EPG sources and channel imports from settings
-        const loadedEpgSources = await readDB("m3u_epg_sources", []);
+  const loadedEpgSources = await readDB("m3u_epg_sources", []);
         const rawChannelImports = await readDB("m3u_channel_imports", []);
         const loadedChannelImports = Array.isArray(rawChannelImports) ? rawChannelImports.map(entry => ({
           id: entry.id || `import-${Math.random().toString(36).slice(2)}`,
@@ -1818,6 +1819,15 @@ export default function App() {
         setShows(loadedShows.map(s => ({ ...s, group: s.group ?? "TV Shows" })));
         setMovies(loadedMovies.map(m => ({ ...m, group: m.group ?? "Movies" })));
         
+        // Load providers (Phase 1)
+        try {
+          const resp = await fetch('/api/providers', { credentials: 'include' });
+          if (resp.ok) {
+            const data = await resp.json();
+            setProviders(data.items || []);
+          }
+        } catch {}
+
         console.log("Data loaded from database");
       } catch (err) {
         console.error("Failed to load data from database:", err);
@@ -1910,6 +1920,68 @@ export default function App() {
     if (typeof window === "undefined") return "";
     return `${window.location.origin}/epg.xml`;
   }, []);
+
+  // --- Providers Tab (Phase 1 minimal) ---
+  const [newProvider, setNewProvider] = useState({ name: '', type: 'm3u', url: '' });
+  const addProvider = async () => {
+    try {
+      const resp = await fetch('/api/providers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ ...newProvider, enabled: true })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setProviders(prev => [{ id: data.id, ...newProvider, enabled: 1 }, ...prev]);
+        setNewProvider({ name: '', type: 'm3u', url: '' });
+        showToast('Provider added', 'success');
+      } else {
+        showToast('Failed to add provider', 'error');
+      }
+    } catch (e) {
+      showToast('Error adding provider', 'error');
+    }
+  };
+  const deleteProvider = async (id) => {
+    if (!confirm('Delete this provider?')) return;
+    try {
+      const resp = await fetch(`/api/providers/${id}`, { method: 'DELETE', credentials: 'include' });
+      if (resp.ok) {
+        setProviders(prev => prev.filter(p => p.id !== id));
+        showToast('Provider deleted', 'success');
+      }
+    } catch {}
+  };
+  const toggleProviderEnabled = async (prov) => {
+    try {
+      const resp = await fetch('/api/providers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id: prov.id, name: prov.name, type: prov.type, url: prov.url || '', refreshCron: prov.refreshCron || '', enabled: !prov.enabled })
+      });
+      if (resp.ok) {
+        setProviders(prev => prev.map(p => p.id === prov.id ? { ...p, enabled: p.enabled ? 0 : 1 } : p));
+      } else {
+        showToast('Failed to update provider', 'error');
+      }
+    } catch (e) {
+      showToast('Error updating provider', 'error');
+    }
+  };
+  const refreshProvider = async (prov) => {
+    try {
+      const resp = await fetch(`/api/providers/${prov.id}/refresh`, { method: 'POST', credentials: 'include' });
+      if (resp.ok) {
+        showToast('Refresh scheduled', 'success');
+      } else {
+        showToast('Failed to schedule refresh', 'error');
+      }
+    } catch {
+      showToast('Error scheduling refresh', 'error');
+    }
+  };
   useEffect(() => {
     if (!m3u) return;
     let cancelled = false;
@@ -3430,6 +3502,10 @@ export default function App() {
             </TabBtn>
             <TabBtn icon="📂" active={active === "library"} onClick={()=>setActive("library")}>
               Library
+            </TabBtn>
+            <TabBtn icon="🔌" active={active === "providers"} onClick={()=>setActive("providers")}>
+              Providers
+              {providers.length > 0 && <span className="px-2 py-0.5 text-xs rounded-full bg-white/20">{providers.length}</span>}
             </TabBtn>
             <TabBtn icon="📋" active={active === "playlist"} onClick={()=>setActive("playlist")}>
               Export
@@ -5679,6 +5755,85 @@ export default function App() {
             <Card>
               <SectionTitle>User Management</SectionTitle>
               <UserManagement showToast={showToast} />
+            </Card>
+          </div>
+        )}
+
+        {active === "providers" && (
+          <div className="space-y-6">
+            <Card>
+              <SectionTitle subtitle="Add an upstream feed (M3U or Xtream)">🔌 Providers</SectionTitle>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-2">
+                <div className="md:col-span-1">
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Name</label>
+                  <input
+                    className={inputClass}
+                    placeholder="e.g., Main Provider"
+                    value={newProvider.name}
+                    onChange={(e) => setNewProvider(prev => ({ ...prev, name: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Type</label>
+                  <select
+                    className={inputClass}
+                    value={newProvider.type}
+                    onChange={(e) => setNewProvider(prev => ({ ...prev, type: e.target.value }))}
+                  >
+                    <option value="m3u">M3U</option>
+                    <option value="xtream">Xtream</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-slate-400 mb-1">URL</label>
+                  <input
+                    className={inputClass}
+                    placeholder="https://..."
+                    value={newProvider.url}
+                    onChange={(e) => setNewProvider(prev => ({ ...prev, url: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="mt-4 flex gap-3">
+                <button className={primaryButton} onClick={addProvider} disabled={!newProvider.name || !newProvider.type}>
+                  ➕ Add Provider
+                </button>
+              </div>
+            </Card>
+
+            <Card>
+              <SectionTitle subtitle="Your configured providers">📋 Provider List</SectionTitle>
+              {providers.length === 0 ? (
+                <div className="text-sm text-slate-400">No providers yet. Add one above to get started.</div>
+              ) : (
+                <div className="mt-3 divide-y divide-white/10 rounded-xl overflow-hidden border border-white/10">
+                  {providers.map((p) => (
+                    <div key={p.id} className="flex flex-col md:flex-row md:items-center gap-3 bg-slate-900/40 px-4 py-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div className="font-semibold text-white truncate">{p.name || 'Untitled'}</div>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${p.type === 'xtream' ? 'bg-purple-500/10 text-purple-300 border-purple-500/30' : 'bg-blue-500/10 text-blue-300 border-blue-500/30'}`}>{(p.type || 'm3u').toUpperCase()}</span>
+                          {p.enabled ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-300 border border-green-500/30">Enabled</span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-500/10 text-slate-300 border border-slate-500/30">Disabled</span>
+                          )}
+                        </div>
+                        {p.url && (
+                          <div className="text-xs text-slate-400 truncate mt-1">{p.url}</div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button className={ghostButton} onClick={() => toggleProviderEnabled(p)}>
+                          {p.enabled ? 'Disable' : 'Enable'}
+                        </button>
+                        <button className={secondaryButton} onClick={() => refreshProvider(p)}>↻ Refresh</button>
+                        <button className={dangerButton} onClick={() => deleteProvider(p.id)}>🗑️ Delete</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </Card>
           </div>
         )}

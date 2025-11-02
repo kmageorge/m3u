@@ -310,6 +310,93 @@ function initializeDatabase() {
     });
 
     console.log('Database tables initialized');
+
+    // Create providers & sources tables if not exist (Phase 1 foundations)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS providers (
+        id TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL, -- 'm3u' | 'xtream' | 'dir'
+        url TEXT,
+        refresh_cron TEXT,
+        enabled INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id, user_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS sources (
+        id TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        kind TEXT NOT NULL, -- 'channel' | 'movie' | 'episode'
+        item_key TEXT NOT NULL,
+        provider_id TEXT,
+        url TEXT NOT NULL,
+        quality TEXT, -- JSON string {height,codec,audio}
+        lang TEXT,
+        tags TEXT, -- JSON array
+        priority INTEGER DEFAULT 100,
+        enabled INTEGER DEFAULT 1,
+        health_status TEXT, -- 'ok' | 'fail' | 'unstable'
+        last_checked_at DATETIME,
+        last_error TEXT,
+        avg_startup_ms INTEGER,
+        success_rate REAL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id, user_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Best-effort seed: create a default provider and initial sources if empty
+    const seed = () => {
+      db.get("SELECT COUNT(*) as c FROM providers", [], (err, row) => {
+        const hasProviders = !err && row && row.c > 0;
+        if (!hasProviders) {
+          db.get("SELECT id FROM users ORDER BY id ASC LIMIT 1", [], (e2, urow) => {
+            const uid = urow?.id || 1;
+            const provId = 'provider-default';
+            db.run(
+              "INSERT OR REPLACE INTO providers (id, user_id, name, type, enabled) VALUES (?, ?, ?, ?, 1)",
+              [provId, uid, 'Default', 'm3u']
+            );
+            // Seed sources for channels and movies from existing data
+            db.all("SELECT id, data FROM channels WHERE user_id = ?", [uid], (e3, chRows) => {
+              (chRows || []).forEach(r => {
+                try {
+                  const obj = JSON.parse(r.data || '{}');
+                  if (!obj?.url) return;
+                  const sid = `src-ch-${obj.id || r.id}`;
+                  db.run(
+                    "INSERT OR IGNORE INTO sources (id, user_id, kind, item_key, provider_id, url, priority, enabled) VALUES (?, ?, 'channel', ?, ?, ?, 100, 1)",
+                    [sid, uid, obj.id || r.id, provId, obj.url]
+                  );
+                } catch {}
+              });
+            });
+            db.all("SELECT id, data FROM movies WHERE user_id = ?", [uid], (e4, mvRows) => {
+              (mvRows || []).forEach(r => {
+                try {
+                  const obj = JSON.parse(r.data || '{}');
+                  if (!obj?.url) return;
+                  const sid = `src-mv-${obj.id || r.id}`;
+                  db.run(
+                    "INSERT OR IGNORE INTO sources (id, user_id, kind, item_key, provider_id, url, priority, enabled) VALUES (?, ?, 'movie', ?, ?, ?, 100, 1)",
+                    [sid, uid, obj.id || r.id, provId, obj.url]
+                  );
+                } catch {}
+              });
+            });
+          });
+        }
+      });
+    };
+    seed();
   });
 }
 
@@ -549,6 +636,80 @@ app.delete("/api/admin/users/:id", authenticateToken, requireAdmin, (req, res) =
 });
 
 // Database API endpoints (now require authentication and are user-scoped)
+// Providers API (Phase 1)
+app.get('/api/providers', authenticateToken, (req, res) => {
+  db.all("SELECT id, name, type, url, refresh_cron as refreshCron, enabled, created_at as createdAt, updated_at as updatedAt FROM providers WHERE user_id = ? ORDER BY created_at DESC", [req.user.id], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ items: rows || [] });
+  });
+});
+
+app.post('/api/providers', authenticateToken, (req, res) => {
+  const { id, name, type, url, refreshCron, enabled = true } = req.body || {};
+  if (!name || !type) return res.status(400).json({ error: 'name and type required' });
+  const pid = id || `provider-${crypto.randomBytes(6).toString('hex')}`;
+  db.run(
+    "INSERT OR REPLACE INTO providers (id, user_id, name, type, url, refresh_cron, enabled, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+    [pid, req.user.id, name, type, url || '', refreshCron || '', enabled ? 1 : 0],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ ok: true, id: pid });
+    }
+  );
+});
+
+app.delete('/api/providers/:id', authenticateToken, (req, res) => {
+  db.run("DELETE FROM providers WHERE id = ? AND user_id = ?", [req.params.id, req.user.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ ok: true });
+  });
+});
+
+app.post('/api/providers/:id/refresh', authenticateToken, (req, res) => {
+  // Placeholder: in future, fetch from provider.url by provider.type and update tables
+  res.json({ ok: true, message: 'Refresh scheduled' });
+});
+
+// Sources API (Phase 1)
+app.get('/api/sources', authenticateToken, (req, res) => {
+  const { kind, itemKey } = req.query;
+  let sql = "SELECT id, kind, item_key as itemKey, provider_id as providerId, url, quality, lang, tags, priority, enabled, health_status as healthStatus, last_checked_at as lastCheckedAt, last_error as lastError, avg_startup_ms as avgStartupMs, success_rate as successRate FROM sources WHERE user_id = ?";
+  const args = [req.user.id];
+  if (kind) { sql += " AND kind = ?"; args.push(kind); }
+  if (itemKey) { sql += " AND item_key = ?"; args.push(itemKey); }
+  sql += " ORDER BY priority ASC, created_at ASC";
+  db.all(sql, args, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    // parse JSON fields
+    const items = (rows || []).map(r => ({
+      ...r,
+      quality: r.quality ? JSON.parse(r.quality) : null,
+      tags: r.tags ? JSON.parse(r.tags) : []
+    }));
+    res.json({ items });
+  });
+});
+
+app.post('/api/sources', authenticateToken, (req, res) => {
+  const { id, kind, itemKey, providerId, url, quality, lang, tags, priority = 100, enabled = true } = req.body || {};
+  if (!kind || !itemKey || !url) return res.status(400).json({ error: 'kind, itemKey and url required' });
+  const sid = id || `src-${crypto.randomBytes(6).toString('hex')}`;
+  db.run(
+    "INSERT OR REPLACE INTO sources (id, user_id, kind, item_key, provider_id, url, quality, lang, tags, priority, enabled, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+    [sid, req.user.id, kind, itemKey, providerId || null, url, quality ? JSON.stringify(quality) : null, lang || null, Array.isArray(tags) ? JSON.stringify(tags) : null, priority, enabled ? 1 : 0],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ ok: true, id: sid });
+    }
+  );
+});
+
+app.delete('/api/sources/:id', authenticateToken, (req, res) => {
+  db.run("DELETE FROM sources WHERE id = ? AND user_id = ?", [req.params.id, req.user.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ ok: true });
+  });
+});
 
 // Get a setting by key
 app.get("/api/db/settings/:key", authenticateToken, (req, res) => {

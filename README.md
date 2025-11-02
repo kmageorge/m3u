@@ -51,6 +51,10 @@ First‑run admin:
  - Playback
    - Built-in web player (at `/player`) with Channels/Movies/Shows and a modal player
    - Automatic ffmpeg HLS transcode fallback for broader codec support
+ - Providers (Phase 1)
+   - Manage upstream providers (M3U or Xtream) in the Providers tab
+   - Enable/disable, refresh (stubbed), and delete providers
+   - Foundation for multi-source attachment and health checks
 - Admin Settings (Danger Zone)
   - Delete All Channels (also clears imported playlists)
   - Delete All TV Shows
@@ -139,6 +143,17 @@ Hosted outputs
 Utilities
 - GET `/proxy?url=...` – basic HTTP(S) proxy with timeout
 - GET `/api/logos?query=...&top=8` – channel logos (requires Bing API key)
+
+Providers and Sources (Phase 1)
+- Providers
+  - GET `/api/providers` – list providers
+  - POST `/api/providers` – create or upsert provider { id?, name, type: "m3u"|"xtream", url?, refreshCron?, enabled }
+  - DELETE `/api/providers/:id` – remove provider
+  - POST `/api/providers/:id/refresh` – schedule a refresh (stub)
+- Sources
+  - GET `/api/sources?kind=&itemKey=` – list attached sources (kind: channel|movie|episode; itemKey is your item ID)
+  - POST `/api/sources` – create or upsert a source { id?, kind, itemKey, providerId?, url, quality?, lang?, tags?, priority?, enabled? }
+  - DELETE `/api/sources/:id` – remove a source
 
 Transcoding
 - POST `/api/transcode/start` – { src } → { id, playlistUrl }
