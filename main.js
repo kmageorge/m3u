@@ -22693,6 +22693,7 @@
     const [selectedEpgSources, setSelectedEpgSources] = (0, import_react.useState)(/* @__PURE__ */ new Set());
     const [epgMappings, setEpgMappings] = (0, import_react.useState)({});
     const [autoMapStatus, setAutoMapStatus] = (0, import_react.useState)({ active: false, matched: 0, total: 0 });
+    const [epgMappingReview, setEpgMappingReview] = (0, import_react.useState)(null);
     const [channels, setChannels] = (0, import_react.useState)([]);
     const [channelLogoQuery, setChannelLogoQuery] = (0, import_react.useState)("");
     const [channelLogoLoading, setChannelLogoLoading] = (0, import_react.useState)(false);
@@ -24195,52 +24196,68 @@ This will also remove ${channelImports.length} imported playlist record(s).`)) r
         return;
       }
       setAutoMapStatus({ active: true, matched: 0, total: channels.length });
-      let matched = 0;
-      let highConfidence = 0;
-      let lowConfidence = 0;
       const datasetSource = enabledSources.find((s) => s.id === "epg-dataset");
+      if (!datasetSource) {
+        showToast("EPG dataset source not available. Enable it first.", "error");
+        setAutoMapStatus({ active: false, matched: 0, total: 0 });
+        return;
+      }
+      const channelSuggestions = [];
       for (const channel of channels) {
         if (!channel.name) continue;
-        if (channel.id && datasetSource) {
+        const suggestions = [];
+        if (channel.id) {
           try {
-            const resp = await fetch(`/api/epg/search?query=${encodeURIComponent(channel.id)}&top=1`);
+            const resp = await fetch(`/api/epg/search?query=${encodeURIComponent(channel.id)}&top=10`);
             if (resp.ok) {
               const data = await resp.json();
-              const exactMatch = (data.results || []).find((r) => r.id === channel.id);
-              if (exactMatch) {
-                setChannelEpgMapping(channel.id, channel.id, datasetSource.id);
-                matched++;
-                highConfidence++;
-                setAutoMapStatus({ active: true, matched, total: channels.length });
-                continue;
-              }
+              const results = (data.results || []).map((r) => ({
+                id: r.id,
+                name: r.name || r.id,
+                confidence: r.confidence,
+                source: "tvg-id search"
+              }));
+              suggestions.push(...results);
             }
           } catch {
           }
         }
-        if (datasetSource) {
-          try {
-            const resp = await fetch(`/api/epg/search?query=${encodeURIComponent(channel.name)}&top=1`);
-            if (resp.ok) {
-              const data = await resp.json();
-              const bestMatch = (data.results || [])[0];
-              if (bestMatch && bestMatch.confidence >= 0.5) {
-                setChannelEpgMapping(channel.id, bestMatch.id, datasetSource.id);
-                matched++;
-                if (bestMatch.confidence >= 0.7) highConfidence++;
-                else lowConfidence++;
-                setAutoMapStatus({ active: true, matched, total: channels.length });
+        try {
+          const resp = await fetch(`/api/epg/search?query=${encodeURIComponent(channel.name)}&top=10`);
+          if (resp.ok) {
+            const data = await resp.json();
+            const results = (data.results || []).map((r) => ({
+              id: r.id,
+              name: r.name || r.id,
+              confidence: r.confidence,
+              source: "name search"
+            }));
+            for (const r of results) {
+              if (!suggestions.find((s) => s.id === r.id)) {
+                suggestions.push(r);
               }
             }
-          } catch {
           }
+        } catch {
         }
+        suggestions.sort((a, b) => b.confidence - a.confidence);
+        const topSuggestions = suggestions.slice(0, 10);
+        const autoSelected = topSuggestions.find((s) => s.confidence >= 0.7);
+        if (topSuggestions.length > 0) {
+          channelSuggestions.push({
+            channel,
+            suggestions: topSuggestions,
+            selected: autoSelected?.id || null
+          });
+        }
+        setAutoMapStatus({ active: true, matched: channelSuggestions.length, total: channels.length });
       }
-      setAutoMapStatus({ active: false, matched, total: channels.length });
-      if (matched === 0) {
-        showToast("No channels could be mapped automatically", "error");
+      setAutoMapStatus({ active: false, matched: channelSuggestions.length, total: channels.length });
+      if (channelSuggestions.length === 0) {
+        showToast("No EPG matches found for any channels", "error");
       } else {
-        showToast(`Auto-mapping complete! ${matched} of ${channels.length} channels mapped (${highConfidence} high confidence, ${lowConfidence} low confidence)`, "success");
+        setEpgMappingReview({ channels: channelSuggestions, sourceId: datasetSource.id });
+        showToast(`Found EPG suggestions for ${channelSuggestions.length} channels. Review and apply!`, "success");
       }
     };
     const importShow = async (tmdbId, options = {}) => {
@@ -26048,6 +26065,104 @@ This cannot be undone!`)) {
       channelPreview.selectedIds.size,
       " Channel",
       channelPreview.selectedIds.size !== 1 ? "s" : ""
+    )))), epgMappingReview && /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "bg-slate-900 rounded-2xl shadow-2xl border border-white/10 w-full max-w-6xl max-h-[90vh] flex flex-col" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "p-6 border-b border-white/10" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h2", { className: "text-2xl font-bold text-white" }, "Review EPG Mappings"), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 mt-1" }, epgMappingReview.channels.length, " channels with EPG suggestions \u2022 Select the correct tvg-id for each")), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: () => setEpgMappingReview(null),
+        className: "text-slate-400 hover:text-white transition-colors text-2xl"
+      },
+      "\u2715"
+    )), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex gap-2 mt-4" }, /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: secondaryButton,
+        onClick: () => {
+          setEpgMappingReview((prev) => ({
+            ...prev,
+            channels: prev.channels.map((item) => ({
+              ...item,
+              selected: item.suggestions[0]?.id || null
+            }))
+          }));
+        }
+      },
+      "\u2728 Auto-select Best Match"
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: secondaryButton,
+        onClick: () => {
+          setEpgMappingReview((prev) => ({
+            ...prev,
+            channels: prev.channels.map((item) => ({ ...item, selected: null }))
+          }));
+        }
+      },
+      "\u2717 Clear All"
+    ), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-slate-400 flex items-center" }, epgMappingReview.channels.filter((c) => c.selected).length, " / ", epgMappingReview.channels.length, " mapped"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 overflow-y-auto p-6 space-y-4" }, epgMappingReview.channels.map((item, idx) => /* @__PURE__ */ import_react.default.createElement("div", { key: idx, className: "bg-slate-800/40 rounded-xl border border-white/10 p-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3 mb-3 pb-3 border-b border-white/10" }, item.channel.logo ? /* @__PURE__ */ import_react.default.createElement("img", { src: item.channel.logo, alt: "", className: "w-12 h-12 rounded object-cover border border-white/10" }) : /* @__PURE__ */ import_react.default.createElement("div", { className: "w-12 h-12 rounded border border-dashed border-white/10 flex items-center justify-center text-xl" }, "\u{1F4FA}"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-base font-semibold text-white" }, item.channel.name), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400" }, item.channel.group && /* @__PURE__ */ import_react.default.createElement("span", { className: "mr-2" }, "\u{1F4C1} ", item.channel.group), item.channel.id && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora/60" }, "tvg-id: ", item.channel.id)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "space-y-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2" }, "EPG Suggestions (", item.suggestions.length, ")"), item.suggestions.map((suggestion) => /* @__PURE__ */ import_react.default.createElement(
+      "label",
+      {
+        key: suggestion.id,
+        className: `flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${item.selected === suggestion.id ? "bg-aurora/10 border-aurora/50" : "bg-slate-900/40 border-white/10 hover:border-white/20"}`
+      },
+      /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          type: "radio",
+          name: `epg-${idx}`,
+          checked: item.selected === suggestion.id,
+          onChange: () => {
+            setEpgMappingReview((prev) => ({
+              ...prev,
+              channels: prev.channels.map(
+                (c, i) => i === idx ? { ...c, selected: suggestion.id } : c
+              )
+            }));
+          },
+          className: "text-aurora focus:ring-aurora/50"
+        }
+      ),
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-medium text-white truncate" }, suggestion.name), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 flex gap-2 items-center mt-0.5" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "text-aurora/60 font-mono text-xs" }, suggestion.id), /* @__PURE__ */ import_react.default.createElement("span", null, "\u2022"), /* @__PURE__ */ import_react.default.createElement("span", { className: `${suggestion.confidence >= 0.7 ? "text-green-400" : suggestion.confidence >= 0.5 ? "text-yellow-400" : "text-slate-400"}` }, Math.round(suggestion.confidence * 100), "% match"), /* @__PURE__ */ import_react.default.createElement("span", null, "\u2022"), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xs opacity-70" }, suggestion.source)))
+    )), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: `w-full text-left p-3 rounded-lg border border-dashed transition-all ${item.selected === null ? "bg-slate-900/60 border-red-500/30 text-red-400" : "border-white/10 text-slate-500 hover:border-white/20 hover:text-slate-400"}`,
+        onClick: () => {
+          setEpgMappingReview((prev) => ({
+            ...prev,
+            channels: prev.channels.map(
+              (c, i) => i === idx ? { ...c, selected: null } : c
+            )
+          }));
+        }
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm" }, "Skip / No EPG")
+    ))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "p-6 border-t border-white/10 flex gap-3 justify-end" }, /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: ghostButton,
+        onClick: () => setEpgMappingReview(null)
+      },
+      "Cancel"
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: primaryButton,
+        onClick: () => {
+          let applied = 0;
+          epgMappingReview.channels.forEach((item) => {
+            if (item.selected) {
+              setChannelEpgMapping(item.channel.id, item.selected, epgMappingReview.sourceId);
+              applied++;
+            }
+          });
+          setEpgMappingReview(null);
+          showToast(`Applied ${applied} EPG mappings`, "success");
+        }
+      },
+      "Apply Mappings (",
+      epgMappingReview.channels.filter((c) => c.selected).length,
+      ")"
     )))), playerState && /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "bg-gradient-to-br from-slate-900 to-midnight border border-white/10 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between p-6 border-b border-white/10" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-2xl" }, playerState.type === "channel" ? "\u{1F4FA}" : playerState.type === "movie" ? "\u{1F3AC}" : "\u{1F4FA}"), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h2", { className: "text-xl font-bold text-white" }, playerState.title), /* @__PURE__ */ import_react.default.createElement("p", { className: "text-sm text-slate-400 capitalize" }, playerState.type))), /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
