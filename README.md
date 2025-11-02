@@ -73,7 +73,8 @@ These are optional but recommended in production:
 - `PORT` – server port (default 3000)
 - `JWT_SECRET` – secret for auth tokens (default: demo value; set a strong one)
 - `PROXY_TIMEOUT` – ms timeout for the `/proxy` endpoint (default 15000)
-- `BING_IMAGE_API_KEY` – enables `/api/logos` channel logo search; leave unset to disable
+- `BING_IMAGE_API_KEY` – enables `/api/logos` channel logo search (Bing); optional when using local dataset
+- `TV_LOGOS_DIR` – optional path to a local TV logos dataset; defaults to `assets/tv-logos` if present
 
 Example:
 
@@ -107,7 +108,7 @@ Hosted outputs:
 
 Utility endpoints:
 - `GET /proxy?url=<http/https URL>` – simple controlled proxy for CORS‑unsafe resources
-- `GET /api/logos?query=<name>&top=8` – channel logo suggestions (requires `BING_IMAGE_API_KEY`)
+- `GET /api/logos?query=<name>&top=8` – channel logo suggestions (local dataset + optional Bing)
 
 
 ## API reference (summary)
@@ -168,7 +169,14 @@ Production checklist
 - Place behind a reverse proxy (Nginx/Caddy) with HTTPS
 - Persist the SQLite database file `m3u_studio.db` (bind mount or volume)
 - Restrict `/proxy` usage (trust boundary) and monitor logs
-- Optionally disable `/api/logos` by omitting `BING_IMAGE_API_KEY`
+- Optionally disable Bing by omitting `BING_IMAGE_API_KEY`. If the local dataset is present, `/api/logos` will still return local matches.
+
+Local TV logos (optional)
+- This repo can include the curated tv-logos dataset as a submodule at `assets/tv-logos`.
+- Files are served at `/logos/...`. The `/api/logos` endpoint fuzzy‑matches filenames to your query and returns direct URLs under `/logos`.
+- If you cloned without submodules, initialize it:
+  - `git submodule update --init --recursive`
+  - Or set `TV_LOGOS_DIR` env var to another folder of logos.
 
 Run as a service (example)
 

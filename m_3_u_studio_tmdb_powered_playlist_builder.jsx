@@ -1515,6 +1515,18 @@ export default function App() {
     return `${window.location.origin}/playlist.m3u`;
   }, []);
 
+  // Quick Add suggestions
+  const [newChannel, setNewChannel] = useState({ name: "", url: "", logo: "", group: "Live" });
+  const [autoApplySuggestions, setAutoApplySuggestions] = useState(true);
+  const [quickLogoSuggestions, setQuickLogoSuggestions] = useState([]); // array of url strings
+  const [quickLogoLoading, setQuickLogoLoading] = useState(false);
+  const [quickEpgSuggestion, setQuickEpgSuggestion] = useState(null); // { epgChannelId, epgSourceId, sourceName, confidence }
+  const [quickEpgLoading, setQuickEpgLoading] = useState(false);
+  const epgChannelsCacheRef = useRef(new Map()); // sourceId -> { loaded: bool, channels: [{ id, names:[], icon?:string }] }
+  const [quickStreamCheck, setQuickStreamCheck] = useState({ state: 'idle', playable: false, status: 0, contentType: '', error: '' });
+  const [quickStreamSuggestions, setQuickStreamSuggestions] = useState([]); // { name, url, logo, group, source, confidence }
+  const [quickStreamLoading, setQuickStreamLoading] = useState(false);
+
   const inputClass = "w-full px-4 py-3 rounded-xl border border-white/10 bg-slate-900/70 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-aurora/60 focus:border-aurora/50 transition-all duration-200";
   const textareaClass = `${inputClass} min-h-[140px] leading-relaxed resize-none`;
   const baseButton = "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-not-allowed";
@@ -2125,6 +2137,160 @@ export default function App() {
     }
   };
 
+  // Fetch and cache EPG channels for a source by parsing XMLTV via proxy
+  const fetchEpgChannelsForSource = useCallback(async (source) => {
+    if (!source?.id || !source?.url) return [];
+    const cache = epgChannelsCacheRef.current;
+    const cached = cache.get(source.id);
+    if (cached?.loaded) return cached.channels || [];
+    try {
+      const resp = await fetch(`/proxy?url=${encodeURIComponent(source.url)}`);
+      const text = await resp.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, "text/xml");
+      const nodes = Array.from(doc.getElementsByTagName("channel"));
+      const channels = nodes.map(node => {
+        const id = node.getAttribute("id") || "";
+        const names = Array.from(node.getElementsByTagName("display-name")).map(n => (n.textContent || "").trim()).filter(Boolean);
+        let icon = "";
+        const iconNode = node.getElementsByTagName("icon")[0];
+        if (iconNode) icon = iconNode.getAttribute("src") || "";
+        return { id, names, icon };
+      }).filter(ch => ch.id || (ch.names && ch.names.length));
+      cache.set(source.id, { loaded: true, channels });
+      return channels;
+    } catch (e) {
+      cache.set(source.id, { loaded: true, channels: [] });
+      return [];
+    }
+  }, []);
+
+  const bestEpgMatchForName = useCallback(async (name) => {
+    const query = (name || "").trim();
+    if (!query) return null;
+    const enabledSources = (epgSources || []).filter(s => s.enabled);
+    if (!enabledSources.length) return null;
+    const normQ = normalizeName(query);
+    let best = null; // { epgChannelId, epgSourceId, sourceName, confidence }
+    for (const source of enabledSources) {
+      const channels = await fetchEpgChannelsForSource(source);
+      for (const ch of channels) {
+        const candidates = [ch.id, ...(ch.names || [])].filter(Boolean);
+        for (const cand of candidates) {
+          const normC = normalizeName(cand);
+          let score = 0;
+          if (normC === normQ) {
+            score = 1.0;
+          } else if (normC.startsWith(normQ) || normQ.startsWith(normC)) {
+            score = 0.92;
+          } else {
+            score = fuzzyMatchScore(normQ, normC);
+          }
+          if (!best || score > best.confidence) {
+            best = { epgChannelId: ch.id || cand, epgSourceId: source.id, sourceName: source.name || source.id, confidence: score };
+          }
+          if (best && best.confidence >= 0.98) break; // early exit on near-perfect match
+        }
+        if (best && best.confidence >= 0.98) break;
+      }
+      if (best && best.confidence >= 0.98) break;
+    }
+    return best;
+  }, [epgSources, fetchEpgChannelsForSource]);
+
+  // Debounced auto-suggestions when typing channel name in Quick Add
+  useEffect(() => {
+    const handle = setTimeout(async () => {
+      const q = (newChannel.name || "").trim();
+      if (!q) {
+        setQuickLogoSuggestions([]);
+        setQuickEpgSuggestion(null);
+        setQuickStreamSuggestions([]);
+        return;
+      }
+      // Logo suggestions
+      setQuickLogoLoading(true);
+      try {
+        const logos = await requestLogoSuggestions(q, 4);
+        setQuickLogoSuggestions(logos.slice(0, 4));
+      } finally {
+        setQuickLogoLoading(false);
+      }
+      // EPG suggestion
+      setQuickEpgLoading(true);
+      try {
+        const match = await bestEpgMatchForName(q);
+        // Require a reasonable confidence threshold to show
+        if (match && match.confidence >= 0.6) {
+          setQuickEpgSuggestion(match);
+        } else {
+          setQuickEpgSuggestion(null);
+        }
+      } finally {
+        setQuickEpgLoading(false);
+      }
+      // Stream URL suggestions from IPTV dataset
+      setQuickStreamLoading(true);
+      try {
+        const res = await fetch(`/api/streams/search?query=${encodeURIComponent(q)}&top=5`);
+        const data = await res.json();
+        if (Array.isArray(data?.results)) {
+          setQuickStreamSuggestions(data.results);
+        } else {
+          setQuickStreamSuggestions([]);
+        }
+      } catch (err) {
+        console.warn("Stream suggestions failed", err);
+        setQuickStreamSuggestions([]);
+      } finally {
+        setQuickStreamLoading(false);
+      }
+    }, 350);
+    return () => clearTimeout(handle);
+  }, [newChannel.name, bestEpgMatchForName]);
+
+  // Debounced stream check for Quick Add URL input
+  useEffect(() => {
+    const q = (newChannel.url || '').trim();
+    if (!q) { 
+      setQuickStreamCheck({ state: 'idle', playable: false, status: 0, contentType: '', error: '' }); 
+      return; 
+    }
+    // Only probe http/https
+    let parsed;
+    try { 
+      parsed = new URL(q); 
+    } catch { 
+      setQuickStreamCheck({ state: 'idle', playable: false, status: 0, contentType: '', error: '' }); 
+      return; 
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) { 
+      setQuickStreamCheck({ state: 'ok', playable: true, status: 0, contentType: '', error: '' }); 
+      return; 
+    }
+    setQuickStreamCheck(prev => ({ ...prev, state: 'checking', error: '' }));
+    const handle = setTimeout(async () => {
+      try {
+        const resp = await fetch(`/api/stream/check?url=${encodeURIComponent(q)}`);
+        const data = await resp.json();
+        if (!resp.ok) {
+          setQuickStreamCheck({ state: 'failed', playable: false, status: resp.status, contentType: '', error: data?.error || 'Probe failed' });
+          return;
+        }
+        setQuickStreamCheck({ 
+          state: data.ok ? 'ok' : 'failed', 
+          playable: !!data.playable, 
+          status: data.status || 0, 
+          contentType: data.contentType || '', 
+          error: data.ok ? '' : (data.error || '') 
+        });
+      } catch (e) {
+        setQuickStreamCheck({ state: 'failed', playable: false, status: 0, contentType: '', error: e?.message || 'Probe failed' });
+      }
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [newChannel.url]);
+
   const handleChannelFileInput = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -2572,20 +2738,43 @@ export default function App() {
 
   // ----- Channels -----
   const addChannel = () => setChannels(cs => [...cs, { id: `ch-${Date.now()}`, name: "New Channel", url: "", logo: "", group: "Live", chno: cs.length + 1 }]);
-  const [newChannel, setNewChannel] = useState({ name: "", url: "", logo: "", group: "Live" });
-  const addChannelQuick = () => {
+  const addChannelQuick = async (skipCheck = false) => {
     const name = sanitizeInput(newChannel.name);
     const url = (newChannel.url || "").trim();
-    const logo = (newChannel.logo || "").trim();
+    let logo = (newChannel.logo || "").trim();
     const group = sanitizeInput(newChannel.group || "Live");
     if (!name) { showToast("Channel name is required", "error"); return; }
     if (!url || !isValidUrl(url)) { showToast("Valid stream URL is required", "error"); return; }
     if (logo && !isValidUrl(logo)) { showToast("Invalid logo URL", "error"); return; }
     if (channels.some(c => (c.url || "").trim() === url)) { showToast("A channel with this URL already exists", "error"); return; }
+
+    // Block save if last stream check indicated failure for http/https URLs
+    try {
+      const u = new URL(url);
+      if (["http:", "https:"].includes(u.protocol)) {
+        if (!skipCheck) {
+          if (quickStreamCheck.state === 'checking') { showToast("Please wait, checking stream…", "info"); return; }
+          if (quickStreamCheck.state === 'failed') { showToast("Stream check failed – cannot add this URL.", "error"); return; }
+        }
+        if (!skipCheck && quickStreamCheck.state !== 'ok') {
+          // Last check not performed – do a quick inline check
+          const resp = await fetch(`/api/stream/check?url=${encodeURIComponent(url)}`);
+          const data = await resp.json();
+          if (!data.ok) { showToast("Stream check failed – cannot add this URL.", "error"); return; }
+        }
+      }
+    } catch {}
+
+    // If logo empty and we have a suggestion, auto-apply
+    if (!logo && autoApplySuggestions && quickLogoSuggestions?.length) {
+      logo = quickLogoSuggestions[0];
+    }
+
+    const id = `ch-${Date.now()}`;
     setChannels(cs => [
       ...cs,
       {
-        id: `ch-${Date.now()}`,
+        id,
         name,
         url,
         logo,
@@ -2593,6 +2782,10 @@ export default function App() {
         chno: (cs.length + 1)
       }
     ]);
+    // Apply EPG mapping suggestion if available
+    if (autoApplySuggestions && quickEpgSuggestion?.epgChannelId && quickEpgSuggestion?.epgSourceId) {
+      setChannelEpgMapping(id, quickEpgSuggestion.epgChannelId, quickEpgSuggestion.epgSourceId);
+    }
     setNewChannel({ name: "", url: "", logo: "", group: group || "Live" });
     showToast("Channel added", "success");
   };
@@ -4269,8 +4462,116 @@ export default function App() {
                       value={newChannel.group}
                       onChange={(e)=>setNewChannel(prev=>({ ...prev, group: e.target.value }))}
                     />
-                    <button className={primaryButton} onClick={addChannelQuick}>Add</button>
+                    <button className={primaryButton + (quickStreamCheck.state==='failed' ? ' opacity-50 cursor-not-allowed' : '')} onClick={() => addChannelQuick(false)} disabled={quickStreamCheck.state==='checking' || quickStreamCheck.state==='failed'}>
+                      {quickStreamCheck.state==='checking' ? 'Checking…' : 'Add'}
+                    </button>
                   </div>
+                  {/* Suggestions row */}
+                  <div className="mt-3 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+                    <label className="inline-flex items-center gap-2 text-xs text-slate-300">
+                      <input type="checkbox" className="h-4 w-4" checked={autoApplySuggestions} onChange={(e)=>setAutoApplySuggestions(e.target.checked)} />
+                      Auto-apply best logo & EPG suggestion on add
+                    </label>
+                    <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-3">
+                      <div className="col-span-1">
+                        <div className="text-xs text-slate-400 mb-1">Logo suggestions</div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {quickLogoLoading && <span className="text-xs text-slate-500">Finding logos…</span>}
+                          {!quickLogoLoading && quickLogoSuggestions.length === 0 && newChannel.name && (
+                            <span className="text-xs text-slate-500">No suggestions</span>
+                          )}
+                          {quickLogoSuggestions.map(url => (
+                            <button
+                              key={url}
+                              title="Use this logo"
+                              className="border border-white/10 rounded-md p-1 hover:border-aurora/60 hover:bg-aurora/5"
+                              onClick={()=>setNewChannel(prev=>({ ...prev, logo: url }))}
+                            >
+                              {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                              <img src={url} style={{ width: 36, height: 36 }} className="object-contain rounded" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="col-span-1 lg:col-span-1">
+                        <div className="text-xs text-slate-400 mb-1">EPG suggestion</div>
+                        {quickEpgLoading && <div className="text-xs text-slate-500">Searching EPG sources…</div>}
+                        {!quickEpgLoading && quickEpgSuggestion && (
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="inline-flex items-center gap-2 px-2 py-1 rounded-lg border border-white/10 bg-slate-900/60 text-slate-200">
+                              <span className="text-slate-400">ID</span>
+                              <code className="text-slate-100">{quickEpgSuggestion.epgChannelId}</code>
+                              <span className="text-slate-400">from</span>
+                              <span className="text-slate-100">{quickEpgSuggestion.sourceName}</span>
+                              <span className="text-slate-500">({Math.round(quickEpgSuggestion.confidence * 100)}%)</span>
+                            </span>
+                            <span className="text-slate-500">Will be applied on add</span>
+                          </div>
+                        )}
+                        {!quickEpgLoading && !quickEpgSuggestion && newChannel.name && (
+                          <div className="text-xs text-slate-500">No EPG match found (enable sources to try)</div>
+                        )}
+                      </div>
+                      <div className="col-span-1">
+                        <div className="text-xs text-slate-400 mb-1">Stream check</div>
+                        {quickStreamCheck.state === 'idle' && <div className="text-xs text-slate-500">Enter a stream URL</div>}
+                        {quickStreamCheck.state === 'checking' && <div className="text-xs text-slate-500">Probing stream…</div>}
+                        {quickStreamCheck.state === 'ok' && (
+                          <div className="text-xs text-green-400">
+                            {quickStreamCheck.playable ? 'OK (playable)' : 'OK'}{quickStreamCheck.contentType ? ` • ${quickStreamCheck.contentType}` : ''}
+                          </div>
+                        )}
+                        {quickStreamCheck.state === 'failed' && (
+                          <div className="text-xs text-red-400 flex items-center gap-2">
+                            <span>
+                              Failed{quickStreamCheck.status ? ` (${quickStreamCheck.status})` : ''}{quickStreamCheck.error ? ` • ${quickStreamCheck.error}` : ''}
+                            </span>
+                            <button className="underline decoration-red-400/60 hover:text-red-300" onClick={() => addChannelQuick(true)}>Add anyway</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Stream URL Suggestions row */}
+                  {(quickStreamLoading || quickStreamSuggestions.length > 0) && (
+                    <div className="mt-3 p-3 rounded-lg bg-slate-900/50 border border-white/5">
+                      <div className="text-xs text-slate-400 mb-2">📡 Stream URL suggestions from IPTV dataset</div>
+                      {quickStreamLoading && <div className="text-xs text-slate-500">Searching streams…</div>}
+                      {!quickStreamLoading && quickStreamSuggestions.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                          {quickStreamSuggestions.map((stream, idx) => (
+                            <button
+                              key={idx}
+                              className="text-left p-2 rounded-lg border border-white/10 bg-slate-800/40 hover:border-aurora/60 hover:bg-aurora/5 transition-all"
+                              onClick={() => {
+                                setNewChannel(prev => ({
+                                  ...prev,
+                                  url: stream.url,
+                                  logo: stream.logo || prev.logo,
+                                  group: stream.group || prev.group
+                                }));
+                              }}
+                              title="Click to use this stream"
+                            >
+                              <div className="flex items-center gap-3">
+                                {stream.logo && (
+                                  <img src={stream.logo} alt="" className="w-8 h-8 object-contain rounded" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs text-slate-200 font-medium truncate">{stream.name}</div>
+                                  <div className="text-xs text-slate-500 truncate">{stream.url}</div>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs shrink-0">
+                                  {stream.group && <span className="text-slate-400 px-2 py-0.5 rounded-full bg-slate-700/50">{stream.group}</span>}
+                                  <span className="text-slate-500">{Math.round(stream.confidence * 100)}%</span>
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Results Count */}

@@ -17,6 +17,8 @@ const BING_IMAGE_API_KEY = process.env.BING_IMAGE_API_KEY || "";
 const JWT_SECRET = process.env.JWT_SECRET || "m3u-studio-secret-change-in-production";
 const SALT_ROUNDS = 10;
 const TV_LOGOS_DIR = process.env.TV_LOGOS_DIR || path.join(__dirname, 'assets', 'tv-logos');
+const EPG_DATASET_DIR = process.env.EPG_DATASET_DIR || path.join(__dirname, 'assets', 'epg');
+const IPTV_STREAMS_DIR = process.env.IPTV_STREAMS_DIR || path.join(__dirname, 'assets', 'iptv-streams', 'streams');
 
 let latestPlaylist = "#EXTM3U";
 let latestEpg = '<?xml version="1.0" encoding="UTF-8"?>\n<tv></tv>';
@@ -420,6 +422,14 @@ try {
 app.use(express.static(path.resolve(__dirname)));
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
+
+// Serve EPG dataset (if present)
+try {
+  if (fs.existsSync(EPG_DATASET_DIR)) {
+    app.use('/epg-dataset', express.static(EPG_DATASET_DIR, { maxAge: '7d' }));
+    console.log(`Serving EPG dataset from ${EPG_DATASET_DIR} at /epg-dataset`);
+  }
+} catch {}
 
 // Middleware to verify JWT token
 function authenticateToken(req, res, next) {
@@ -925,6 +935,7 @@ app.get("/proxy", async (req, res) => {
   }
 });
 
+// --- Logos search (local dataset + optional Bing) ---
 app.get("/api/logos", async (req, res) => {
   const query = (req.query.query || "").toString().trim();
   const top = Math.min(Math.max(parseInt(req.query.top, 10) || 8, 1), 10);
@@ -1015,6 +1026,194 @@ app.get("/api/logos", async (req, res) => {
   pushUnique(resultsBing);
   const final = combined.slice(0, top);
   return res.json({ results: final });
+});
+
+// Lightweight stream health probe
+// --- Stream probe ---
+app.get('/api/stream/check', async (req, res) => {
+  const target = (req.query.url || '').toString();
+  if (!target.trim()) return res.status(400).json({ ok: false, error: 'url required' });
+  let parsed;
+  try {
+    parsed = new URL(target);
+  } catch {
+    return res.status(400).json({ ok: false, error: 'invalid url' });
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return res.json({ ok: true, status: 0, playable: true, note: 'non-http url not probed' });
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PROXY_TIMEOUT);
+  try {
+    // Try HEAD first to avoid payload
+    let resp = await fetch(parsed.toString(), { method: 'HEAD', signal: controller.signal, headers: {
+      'user-agent': req.headers['user-agent'] || 'm3u-studio-probe/1.0',
+      'accept': '*/*'
+    }});
+    if (resp.status === 405 || resp.status === 501) {
+      // fallback to range GET
+      resp = await fetch(parsed.toString(), { headers: { Range: 'bytes=0-0', 'user-agent': req.headers['user-agent'] || 'm3u-studio-probe/1.0', 'accept': '*/*' }, signal: controller.signal });
+    }
+    const status = resp.status;
+    const contentType = resp.headers.get('content-type') || '';
+    const ok = status >= 200 && status < 300 || status === 206;
+    // Heuristic playable detection
+    const lcType = contentType.toLowerCase();
+    const urlLower = parsed.toString().toLowerCase();
+    const isHls = lcType.includes('application/vnd.apple.mpegurl') || lcType.includes('application/x-mpegurl') || urlLower.includes('.m3u8');
+    const isDash = lcType.includes('application/dash+xml') || urlLower.includes('.mpd');
+    const isVideo = lcType.startsWith('video/');
+    const isAudio = lcType.startsWith('audio/');
+    const playable = isHls || isDash || isVideo || isAudio || lcType === 'application/octet-stream';
+    return res.json({ ok, status, contentType, playable });
+  } catch (err) {
+    const code = err.name === 'AbortError' ? 504 : 502;
+    return res.status(code).json({ ok: false, error: err.message || String(err) });
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
+// --- EPG dataset search ---
+function normalizeNameServer(n) {
+  if (!n) return '';
+  return String(n)
+    .toLowerCase()
+    .replace(/\b(hd|fhd|uhd|4k|8k|full|channel|tv|sd|uhd|plus|pl\+|premium)\b/g, '')
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function jaccardScore(a, b) {
+  const ta = new Set(a.split(' ').filter(Boolean));
+  const tb = new Set(b.split(' ').filter(Boolean));
+  if (!ta.size || !tb.size) return 0;
+  let inter = 0; ta.forEach(t => { if (tb.has(t)) inter++; });
+  const uni = new Set([...ta, ...tb]).size || 1;
+  return inter / uni;
+}
+
+async function buildEpgDatasetIndex() {
+  if (global.__epgDatasetIndex) return global.__epgDatasetIndex;
+  if (!fs.existsSync(EPG_DATASET_DIR)) { global.__epgDatasetIndex = { channels: [] }; return global.__epgDatasetIndex; }
+  const channels = [];
+  const exts = new Set(['.xml']);
+  const walk = (dir) => {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else {
+        const ext = path.extname(e.name).toLowerCase();
+        if (!exts.has(ext)) continue;
+        try {
+          const text = fs.readFileSync(p, 'utf8');
+          // Quick parse: find channel blocks
+          const channelRegex = /<channel\s+id="([^"]+)"[^>]*>([\s\S]*?)<\/channel>/gi;
+          let m;
+          while ((m = channelRegex.exec(text)) !== null) {
+            const id = (m[1] || '').trim();
+            const inner = m[2] || '';
+            const names = [];
+            const nameRegex = /<display-name[^>]*>([\s\S]*?)<\/display-name>/gi;
+            let nm; while ((nm = nameRegex.exec(inner)) !== null) {
+              const val = (nm[1] || '').replace(/<[^>]*>/g, '').trim();
+              if (val) names.push(val);
+            }
+            if (id || names.length) channels.push({ id, names, normId: normalizeNameServer(id), normNames: names.map(normalizeNameServer) });
+          }
+        } catch {}
+      }
+    }
+  };
+  walk(EPG_DATASET_DIR);
+  global.__epgDatasetIndex = { channels };
+  console.log(`Indexed EPG dataset: ${channels.length} channels`);
+  return global.__epgDatasetIndex;
+}
+
+app.get('/api/epg/search', async (req, res) => {
+  const query = (req.query.query || '').toString().trim();
+  const top = Math.min(Math.max(parseInt(req.query.top, 10) || 8, 1), 20);
+  if (!query) return res.json({ results: [] });
+  const { channels } = await buildEpgDatasetIndex();
+  const normQ = normalizeNameServer(query);
+  const scored = channels.map(ch => {
+    const scores = [jaccardScore(normQ, ch.normId), ...(ch.normNames || []).map(n => jaccardScore(normQ, n))];
+    const best = Math.max(...scores);
+    return { id: ch.id || (ch.names?.[0] || ''), source: 'dataset', confidence: best, name: ch.names?.[0] || ch.id };
+  }).filter(r => r.confidence >= 0.4)
+    .sort((a,b) => b.confidence - a.confidence)
+    .slice(0, top);
+  return res.json({ results: scored });
+});
+
+// Build in-memory index of IPTV streams from M3U files
+async function buildIptvStreamsIndex() {
+  if (global.__iptvStreamsIndex) return global.__iptvStreamsIndex;
+  const streams = [];
+  if (!fs.existsSync(IPTV_STREAMS_DIR)) {
+    console.warn(`IPTV streams directory not found: ${IPTV_STREAMS_DIR}`);
+    global.__iptvStreamsIndex = { streams: [] };
+    return global.__iptvStreamsIndex;
+  }
+  const files = fs.readdirSync(IPTV_STREAMS_DIR).filter(f => f.endsWith('.m3u'));
+  for (const file of files) {
+    try {
+      const content = fs.readFileSync(path.join(IPTV_STREAMS_DIR, file), 'utf-8');
+      const lines = content.split(/\r?\n/);
+      let currentName = '';
+      let currentLogo = '';
+      let currentGroup = '';
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.startsWith('#EXTINF:')) {
+          // Parse name from EXTINF line
+          const nameMatch = line.match(/,(.+)$/);
+          currentName = nameMatch ? nameMatch[1].trim() : '';
+          // Parse tvg-logo
+          const logoMatch = line.match(/tvg-logo="([^"]+)"/);
+          currentLogo = logoMatch ? logoMatch[1] : '';
+          // Parse group-title
+          const groupMatch = line.match(/group-title="([^"]+)"/);
+          currentGroup = groupMatch ? groupMatch[1] : '';
+        } else if (line && !line.startsWith('#') && currentName) {
+          streams.push({
+            name: currentName,
+            url: line,
+            logo: currentLogo,
+            group: currentGroup,
+            normName: normalizeNameServer(currentName),
+            source: file.replace('.m3u', '')
+          });
+          currentName = '';
+          currentLogo = '';
+          currentGroup = '';
+        }
+      }
+    } catch (e) {
+      console.warn(`Failed to parse ${file}:`, e.message);
+    }
+  }
+  global.__iptvStreamsIndex = { streams };
+  console.log(`Indexed IPTV streams: ${streams.length} channels from ${files.length} files`);
+  return global.__iptvStreamsIndex;
+}
+
+app.get('/api/streams/search', async (req, res) => {
+  const query = (req.query.query || '').toString().trim();
+  const top = Math.min(Math.max(parseInt(req.query.top, 10) || 8, 1), 20);
+  if (!query) return res.json({ results: [] });
+  const { streams } = await buildIptvStreamsIndex();
+  const normQ = normalizeNameServer(query);
+  const scored = streams.map(s => ({
+    ...s,
+    confidence: jaccardScore(normQ, s.normName)
+  })).filter(r => r.confidence >= 0.4)
+    .sort((a,b) => b.confidence - a.confidence)
+    .slice(0, top);
+  return res.json({ results: scored.map(s => ({ name: s.name, url: s.url, logo: s.logo, group: s.group, source: s.source, confidence: s.confidence })) });
 });
 
 app.post("/api/playlist", express.text({ type: "*/*", limit: "10mb" }), (req, res) => {

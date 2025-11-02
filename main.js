@@ -21617,6 +21617,17 @@
     if (!n) return "";
     return n.toString().toLowerCase().replace(/\b(hd|fhd|uhd|4k|8k|full|channel|tv)\b/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
   };
+  var fuzzyMatchScore = (a, b) => {
+    const ta = new Set(normalizeName(a).split(/\s+/).filter(Boolean));
+    const tb = new Set(normalizeName(b).split(/\s+/).filter(Boolean));
+    if (!ta.size || !tb.size) return 0;
+    let intersection = 0;
+    ta.forEach((t) => {
+      if (tb.has(t)) intersection++;
+    });
+    const union = (/* @__PURE__ */ new Set([...ta, ...tb])).size;
+    return union > 0 ? intersection / union : 0;
+  };
   function downloadText(filename, text) {
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -22732,6 +22743,16 @@
       if (typeof window === "undefined") return "/playlist.m3u";
       return `${window.location.origin}/playlist.m3u`;
     }, []);
+    const [newChannel, setNewChannel] = (0, import_react.useState)({ name: "", url: "", logo: "", group: "Live" });
+    const [autoApplySuggestions, setAutoApplySuggestions] = (0, import_react.useState)(true);
+    const [quickLogoSuggestions, setQuickLogoSuggestions] = (0, import_react.useState)([]);
+    const [quickLogoLoading, setQuickLogoLoading] = (0, import_react.useState)(false);
+    const [quickEpgSuggestion, setQuickEpgSuggestion] = (0, import_react.useState)(null);
+    const [quickEpgLoading, setQuickEpgLoading] = (0, import_react.useState)(false);
+    const epgChannelsCacheRef = (0, import_react.useRef)(/* @__PURE__ */ new Map());
+    const [quickStreamCheck, setQuickStreamCheck] = (0, import_react.useState)({ state: "idle", playable: false, status: 0, contentType: "", error: "" });
+    const [quickStreamSuggestions, setQuickStreamSuggestions] = (0, import_react.useState)([]);
+    const [quickStreamLoading, setQuickStreamLoading] = (0, import_react.useState)(false);
     const inputClass = "w-full px-4 py-3 rounded-xl border border-white/10 bg-slate-900/70 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-aurora/60 focus:border-aurora/50 transition-all duration-200";
     const textareaClass = `${inputClass} min-h-[140px] leading-relaxed resize-none`;
     const baseButton = "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-not-allowed";
@@ -23296,6 +23317,148 @@
         return [];
       }
     };
+    const fetchEpgChannelsForSource = (0, import_react.useCallback)(async (source) => {
+      if (!source?.id || !source?.url) return [];
+      const cache = epgChannelsCacheRef.current;
+      const cached = cache.get(source.id);
+      if (cached?.loaded) return cached.channels || [];
+      try {
+        const resp = await fetch(`/proxy?url=${encodeURIComponent(source.url)}`);
+        const text = await resp.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, "text/xml");
+        const nodes = Array.from(doc.getElementsByTagName("channel"));
+        const channels2 = nodes.map((node) => {
+          const id = node.getAttribute("id") || "";
+          const names = Array.from(node.getElementsByTagName("display-name")).map((n) => (n.textContent || "").trim()).filter(Boolean);
+          let icon = "";
+          const iconNode = node.getElementsByTagName("icon")[0];
+          if (iconNode) icon = iconNode.getAttribute("src") || "";
+          return { id, names, icon };
+        }).filter((ch) => ch.id || ch.names && ch.names.length);
+        cache.set(source.id, { loaded: true, channels: channels2 });
+        return channels2;
+      } catch (e) {
+        cache.set(source.id, { loaded: true, channels: [] });
+        return [];
+      }
+    }, []);
+    const bestEpgMatchForName = (0, import_react.useCallback)(async (name) => {
+      const query = (name || "").trim();
+      if (!query) return null;
+      const enabledSources = (epgSources || []).filter((s) => s.enabled);
+      if (!enabledSources.length) return null;
+      const normQ = normalizeName(query);
+      let best = null;
+      for (const source of enabledSources) {
+        const channels2 = await fetchEpgChannelsForSource(source);
+        for (const ch of channels2) {
+          const candidates = [ch.id, ...ch.names || []].filter(Boolean);
+          for (const cand of candidates) {
+            const normC = normalizeName(cand);
+            let score = 0;
+            if (normC === normQ) {
+              score = 1;
+            } else if (normC.startsWith(normQ) || normQ.startsWith(normC)) {
+              score = 0.92;
+            } else {
+              score = fuzzyMatchScore(normQ, normC);
+            }
+            if (!best || score > best.confidence) {
+              best = { epgChannelId: ch.id || cand, epgSourceId: source.id, sourceName: source.name || source.id, confidence: score };
+            }
+            if (best && best.confidence >= 0.98) break;
+          }
+          if (best && best.confidence >= 0.98) break;
+        }
+        if (best && best.confidence >= 0.98) break;
+      }
+      return best;
+    }, [epgSources, fetchEpgChannelsForSource]);
+    (0, import_react.useEffect)(() => {
+      const handle = setTimeout(async () => {
+        const q = (newChannel.name || "").trim();
+        if (!q) {
+          setQuickLogoSuggestions([]);
+          setQuickEpgSuggestion(null);
+          setQuickStreamSuggestions([]);
+          return;
+        }
+        setQuickLogoLoading(true);
+        try {
+          const logos = await requestLogoSuggestions(q, 4);
+          setQuickLogoSuggestions(logos.slice(0, 4));
+        } finally {
+          setQuickLogoLoading(false);
+        }
+        setQuickEpgLoading(true);
+        try {
+          const match = await bestEpgMatchForName(q);
+          if (match && match.confidence >= 0.6) {
+            setQuickEpgSuggestion(match);
+          } else {
+            setQuickEpgSuggestion(null);
+          }
+        } finally {
+          setQuickEpgLoading(false);
+        }
+        setQuickStreamLoading(true);
+        try {
+          const res = await fetch(`/api/streams/search?query=${encodeURIComponent(q)}&top=5`);
+          const data = await res.json();
+          if (Array.isArray(data?.results)) {
+            setQuickStreamSuggestions(data.results);
+          } else {
+            setQuickStreamSuggestions([]);
+          }
+        } catch (err) {
+          console.warn("Stream suggestions failed", err);
+          setQuickStreamSuggestions([]);
+        } finally {
+          setQuickStreamLoading(false);
+        }
+      }, 350);
+      return () => clearTimeout(handle);
+    }, [newChannel.name, bestEpgMatchForName]);
+    (0, import_react.useEffect)(() => {
+      const q = (newChannel.url || "").trim();
+      if (!q) {
+        setQuickStreamCheck({ state: "idle", playable: false, status: 0, contentType: "", error: "" });
+        return;
+      }
+      let parsed;
+      try {
+        parsed = new URL(q);
+      } catch {
+        setQuickStreamCheck({ state: "idle", playable: false, status: 0, contentType: "", error: "" });
+        return;
+      }
+      if (!["http:", "https:"].includes(parsed.protocol)) {
+        setQuickStreamCheck({ state: "ok", playable: true, status: 0, contentType: "", error: "" });
+        return;
+      }
+      setQuickStreamCheck((prev) => ({ ...prev, state: "checking", error: "" }));
+      const handle = setTimeout(async () => {
+        try {
+          const resp = await fetch(`/api/stream/check?url=${encodeURIComponent(q)}`);
+          const data = await resp.json();
+          if (!resp.ok) {
+            setQuickStreamCheck({ state: "failed", playable: false, status: resp.status, contentType: "", error: data?.error || "Probe failed" });
+            return;
+          }
+          setQuickStreamCheck({
+            state: data.ok ? "ok" : "failed",
+            playable: !!data.playable,
+            status: data.status || 0,
+            contentType: data.contentType || "",
+            error: data.ok ? "" : data.error || ""
+          });
+        } catch (e) {
+          setQuickStreamCheck({ state: "failed", playable: false, status: 0, contentType: "", error: e?.message || "Probe failed" });
+        }
+      }, 400);
+      return () => clearTimeout(handle);
+    }, [newChannel.url]);
     const handleChannelFileInput = async (event) => {
       const file = event.target.files?.[0];
       if (!file) return;
@@ -23672,11 +23835,10 @@
       showToast(`Imported "${suggestion.title}" with ${Object.keys(episodeMap).length} episodes linked.`, "success");
     };
     const addChannel = () => setChannels((cs) => [...cs, { id: `ch-${Date.now()}`, name: "New Channel", url: "", logo: "", group: "Live", chno: cs.length + 1 }]);
-    const [newChannel, setNewChannel] = (0, import_react.useState)({ name: "", url: "", logo: "", group: "Live" });
-    const addChannelQuick = () => {
+    const addChannelQuick = async (skipCheck = false) => {
       const name = sanitizeInput(newChannel.name);
       const url = (newChannel.url || "").trim();
-      const logo = (newChannel.logo || "").trim();
+      let logo = (newChannel.logo || "").trim();
       const group = sanitizeInput(newChannel.group || "Live");
       if (!name) {
         showToast("Channel name is required", "error");
@@ -23694,10 +23856,38 @@
         showToast("A channel with this URL already exists", "error");
         return;
       }
+      try {
+        const u = new URL(url);
+        if (["http:", "https:"].includes(u.protocol)) {
+          if (!skipCheck) {
+            if (quickStreamCheck.state === "checking") {
+              showToast("Please wait, checking stream\u2026", "info");
+              return;
+            }
+            if (quickStreamCheck.state === "failed") {
+              showToast("Stream check failed \u2013 cannot add this URL.", "error");
+              return;
+            }
+          }
+          if (!skipCheck && quickStreamCheck.state !== "ok") {
+            const resp = await fetch(`/api/stream/check?url=${encodeURIComponent(url)}`);
+            const data = await resp.json();
+            if (!data.ok) {
+              showToast("Stream check failed \u2013 cannot add this URL.", "error");
+              return;
+            }
+          }
+        }
+      } catch {
+      }
+      if (!logo && autoApplySuggestions && quickLogoSuggestions?.length) {
+        logo = quickLogoSuggestions[0];
+      }
+      const id = `ch-${Date.now()}`;
       setChannels((cs) => [
         ...cs,
         {
-          id: `ch-${Date.now()}`,
+          id,
           name,
           url,
           logo,
@@ -23705,6 +23895,9 @@
           chno: cs.length + 1
         }
       ]);
+      if (autoApplySuggestions && quickEpgSuggestion?.epgChannelId && quickEpgSuggestion?.epgSourceId) {
+        setChannelEpgMapping(id, quickEpgSuggestion.epgChannelId, quickEpgSuggestion.epgSourceId);
+      }
       setNewChannel({ name: "", url: "", logo: "", group: group || "Live" });
       showToast("Channel added", "success");
     };
@@ -24656,7 +24849,32 @@ This will also remove ${channelImports.length} imported playlist record(s).`)) r
         value: newChannel.group,
         onChange: (e) => setNewChannel((prev) => ({ ...prev, group: e.target.value }))
       }
-    ), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: addChannelQuick }, "Add"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-slate-400" }, "Showing ", (() => {
+    ), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton + (quickStreamCheck.state === "failed" ? " opacity-50 cursor-not-allowed" : ""), onClick: () => addChannelQuick(false), disabled: quickStreamCheck.state === "checking" || quickStreamCheck.state === "failed" }, quickStreamCheck.state === "checking" ? "Checking\u2026" : "Add")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 flex flex-col md:flex-row gap-3 md:items-center md:justify-between" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "inline-flex items-center gap-2 text-xs text-slate-300" }, /* @__PURE__ */ import_react.default.createElement("input", { type: "checkbox", className: "h-4 w-4", checked: autoApplySuggestions, onChange: (e) => setAutoApplySuggestions(e.target.checked) }), "Auto-apply best logo & EPG suggestion on add"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 grid grid-cols-1 lg:grid-cols-3 gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "col-span-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mb-1" }, "Logo suggestions"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 flex-wrap" }, quickLogoLoading && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xs text-slate-500" }, "Finding logos\u2026"), !quickLogoLoading && quickLogoSuggestions.length === 0 && newChannel.name && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-xs text-slate-500" }, "No suggestions"), quickLogoSuggestions.map((url) => /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        key: url,
+        title: "Use this logo",
+        className: "border border-white/10 rounded-md p-1 hover:border-aurora/60 hover:bg-aurora/5",
+        onClick: () => setNewChannel((prev) => ({ ...prev, logo: url }))
+      },
+      /* @__PURE__ */ import_react.default.createElement("img", { src: url, style: { width: 36, height: 36 }, className: "object-contain rounded" })
+    )))), /* @__PURE__ */ import_react.default.createElement("div", { className: "col-span-1 lg:col-span-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mb-1" }, "EPG suggestion"), quickEpgLoading && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, "Searching EPG sources\u2026"), !quickEpgLoading && quickEpgSuggestion && /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 text-xs" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "inline-flex items-center gap-2 px-2 py-1 rounded-lg border border-white/10 bg-slate-900/60 text-slate-200" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-400" }, "ID"), /* @__PURE__ */ import_react.default.createElement("code", { className: "text-slate-100" }, quickEpgSuggestion.epgChannelId), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-400" }, "from"), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-100" }, quickEpgSuggestion.sourceName), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-500" }, "(", Math.round(quickEpgSuggestion.confidence * 100), "%)")), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-500" }, "Will be applied on add")), !quickEpgLoading && !quickEpgSuggestion && newChannel.name && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, "No EPG match found (enable sources to try)")), /* @__PURE__ */ import_react.default.createElement("div", { className: "col-span-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mb-1" }, "Stream check"), quickStreamCheck.state === "idle" && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, "Enter a stream URL"), quickStreamCheck.state === "checking" && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, "Probing stream\u2026"), quickStreamCheck.state === "ok" && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-green-400" }, quickStreamCheck.playable ? "OK (playable)" : "OK", quickStreamCheck.contentType ? ` \u2022 ${quickStreamCheck.contentType}` : ""), quickStreamCheck.state === "failed" && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-red-400 flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", null, "Failed", quickStreamCheck.status ? ` (${quickStreamCheck.status})` : "", quickStreamCheck.error ? ` \u2022 ${quickStreamCheck.error}` : ""), /* @__PURE__ */ import_react.default.createElement("button", { className: "underline decoration-red-400/60 hover:text-red-300", onClick: () => addChannelQuick(true) }, "Add anyway"))))), (quickStreamLoading || quickStreamSuggestions.length > 0) && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 p-3 rounded-lg bg-slate-900/50 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-400 mb-2" }, "\u{1F4E1} Stream URL suggestions from IPTV dataset"), quickStreamLoading && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500" }, "Searching streams\u2026"), !quickStreamLoading && quickStreamSuggestions.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col gap-2" }, quickStreamSuggestions.map((stream, idx) => /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        key: idx,
+        className: "text-left p-2 rounded-lg border border-white/10 bg-slate-800/40 hover:border-aurora/60 hover:bg-aurora/5 transition-all",
+        onClick: () => {
+          setNewChannel((prev) => ({
+            ...prev,
+            url: stream.url,
+            logo: stream.logo || prev.logo,
+            group: stream.group || prev.group
+          }));
+        },
+        title: "Click to use this stream"
+      },
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3" }, stream.logo && /* @__PURE__ */ import_react.default.createElement("img", { src: stream.logo, alt: "", className: "w-8 h-8 object-contain rounded" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex-1 min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-200 font-medium truncate" }, stream.name), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-slate-500 truncate" }, stream.url)), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 text-xs shrink-0" }, stream.group && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-400 px-2 py-0.5 rounded-full bg-slate-700/50" }, stream.group), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-slate-500" }, Math.round(stream.confidence * 100), "%")))
+    ))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-slate-400" }, "Showing ", (() => {
       const filtered = channels.filter((ch, idx) => {
         const searchLower = channelSearchQuery.toLowerCase();
         const matchesSearch = !searchLower || ch.name?.toLowerCase().includes(searchLower) || ch.url?.toLowerCase().includes(searchLower);
@@ -25669,4 +25887,3 @@ react-dom/cjs/react-dom-client.development.js:
    * LICENSE file in the root directory of this source tree.
    *)
 */
-//# sourceMappingURL=main.js.map
