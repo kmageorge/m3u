@@ -1,0 +1,3 @@
+[submodule "assets/tv-logos"]
+	path = assets/tv-logos
+	url = https://github.com/tv-logo/tv-logos.git
