@@ -2492,13 +2492,14 @@ export default function App() {
       }
       
       additions.push({
-        id: `ch-${importTimestamp}-${added + 1}`,
+        id: entry.id || `ch-${importTimestamp}-${added + 1}`, // Preserve original tvg-id if present
         importId,
         name: entry.name,
         url: normalizedUrl,
         logo,
         group: entry.group,
-        chno: entry.chno
+        chno: entry.chno,
+        originalTvgId: entry.id || "" // Store original tvg-id for reference
       });
       added++;
       
@@ -3112,35 +3113,47 @@ export default function App() {
     let highConfidence = 0;
     let lowConfidence = 0;
 
-    channels.forEach(channel => {
-      if (!channel.name) return;
+    // Prefer dataset source for matching
+    const datasetSource = enabledSources.find(s => s.id === 'epg-dataset');
+    
+    for (const channel of channels) {
+      if (!channel.name) continue;
       
-      // Priority 1: Exact tvg-id match
-      if (channel.id) {
-        const firstEpg = enabledSources[0];
-        if (firstEpg) {
-          setChannelEpgMapping(channel.id, channel.id, firstEpg.id);
-          matched++;
-          highConfidence++;
-          return;
-        }
+      // Priority 1: Exact tvg-id match in EPG dataset
+      if (channel.id && datasetSource) {
+        try {
+          const resp = await fetch(`/api/epg/search?query=${encodeURIComponent(channel.id)}&top=1`);
+          if (resp.ok) {
+            const data = await resp.json();
+            const exactMatch = (data.results || []).find(r => r.id === channel.id);
+            if (exactMatch) {
+              setChannelEpgMapping(channel.id, channel.id, datasetSource.id);
+              matched++;
+              highConfidence++;
+              setAutoMapStatus({ active: true, matched, total: channels.length });
+              continue;
+            }
+          }
+        } catch {}
       }
       
       // Priority 2: Fuzzy name matching
-      const normalizedChannelName = normalizeName(channel.name);
-      if (normalizedChannelName) {
-        // For now, use the channel name as EPG ID with first enabled source
-        // In a real implementation, you'd fetch EPG XML and match against actual channel IDs
-        const firstEpg = enabledSources[0];
-        if (firstEpg) {
-          // Generate a likely EPG channel ID from normalized name
-          const epgChannelId = normalizedChannelName.replace(/\s+/g, ".") + ".tv";
-          setChannelEpgMapping(channel.id, epgChannelId, firstEpg.id);
-          matched++;
-          lowConfidence++;
-        }
+      if (datasetSource) {
+        try {
+          const resp = await fetch(`/api/epg/search?query=${encodeURIComponent(channel.name)}&top=1`);
+          if (resp.ok) {
+            const data = await resp.json();
+            const bestMatch = (data.results || [])[0];
+            if (bestMatch && bestMatch.confidence >= 0.5) {
+              setChannelEpgMapping(channel.id, bestMatch.id, datasetSource.id);
+              matched++;
+              if (bestMatch.confidence >= 0.7) highConfidence++; else lowConfidence++;
+              setAutoMapStatus({ active: true, matched, total: channels.length });
+            }
+          }
+        } catch {}
       }
-    });
+    }
 
     setAutoMapStatus({ active: false, matched, total: channels.length });
     
