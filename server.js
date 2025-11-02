@@ -1001,3 +1001,263 @@ app.get("/transcode/:id/:file", (req, res) => {
 app.listen(PORT, () => {
   console.log(`M3U Studio available on http://localhost:${PORT}`);
 });
+
+// ---------------- Xtream Codes compatible API (minimal) ----------------
+// Helpers to access DB without JWT for Xtream endpoints (guarded by credentials)
+function dbGet(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
+  });
+}
+function dbAll(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows));
+  });
+}
+
+async function getXtreamUserId() {
+  // Optionally select a specific user via env var
+  const envId = process.env.XTREAM_USER_ID && parseInt(process.env.XTREAM_USER_ID, 10);
+  if (envId) return envId;
+  const admin = await dbGet("SELECT id FROM users WHERE role='admin' ORDER BY id ASC LIMIT 1", []);
+  if (admin?.id) return admin.id;
+  const any = await dbGet("SELECT id FROM users ORDER BY id ASC LIMIT 1", []);
+  return any?.id || 1;
+}
+
+function genId(s) {
+  try {
+    const h = crypto.createHash('md5').update(String(s)).digest('hex');
+    return parseInt(h.slice(0, 8), 16);
+  } catch {
+    return Math.abs((String(s).length * 2654435761) >>> 0);
+  }
+}
+
+async function loadAllDataForXtream() {
+  const userId = await getXtreamUserId();
+  const channelsRows = await dbAll("SELECT data FROM channels WHERE user_id = ?", [userId]);
+  const showsRows = await dbAll("SELECT data FROM shows WHERE user_id = ?", [userId]);
+  const moviesRows = await dbAll("SELECT data FROM movies WHERE user_id = ?", [userId]);
+  const channels = channelsRows.map(r => JSON.parse(r.data || '{}'));
+  const shows = showsRows.map(r => JSON.parse(r.data || '{}'));
+  const movies = moviesRows.map(r => JSON.parse(r.data || '{}'));
+  return { channels, shows, movies };
+}
+
+function requireXtreamAuth(req, res) {
+  const u = req.query.username || req.params.username || req.params.user;
+  const p = req.query.password || req.params.password || req.params.pass;
+  if ((XTREAM_USER && u !== XTREAM_USER) || (XTREAM_PASS && p !== XTREAM_PASS)) {
+    res.status(401).json({ user_info: { auth: 0, status: 'Expired' }, server_info: {} });
+    return false;
+  }
+  return true;
+}
+
+function makeServerInfo(req) {
+  const base = `${req.protocol}://${req.get('host')}`;
+  return {
+    url: base,
+    port: req.get('host')?.split(':')[1] || String(PORT),
+    https_port: "443",
+    server_protocol: req.protocol,
+    rtmp_port: "0",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  };
+}
+
+function makeUserInfo() {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    username: XTREAM_USER,
+    password: XTREAM_PASS,
+    message: '',
+    auth: 1,
+    status: 'Active',
+    exp_date: (now + 365 * 24 * 3600).toString(),
+    is_trial: '0',
+    active_cons: '1',
+    created_at: now.toString(),
+    max_connections: '1',
+  };
+}
+
+app.get('/player_api.php', async (req, res) => {
+  if (!requireXtreamAuth(req, res)) return;
+  const action = (req.query.action || '').toString();
+  const base = `${req.protocol}://${req.get('host')}`;
+  try {
+    const { channels, shows, movies } = await loadAllDataForXtream();
+
+    if (!action) {
+      // Portal root – return minimal user/server info
+      return res.json({ user_info: makeUserInfo(), server_info: makeServerInfo(req) });
+    }
+
+    if (action === 'get_live_categories') {
+      const groups = Array.from(new Set(channels.map(c => c.group || 'Live')));
+      const cats = groups.map((g) => ({ category_id: genId('live:' + g), category_name: g, parent_id: 0 }));
+      return res.json(cats);
+    }
+    if (action === 'get_vod_categories') {
+      const groups = Array.from(new Set(movies.map(m => m.group || 'Movies')));
+      const cats = groups.map((g) => ({ category_id: genId('vod:' + g), category_name: g, parent_id: 0 }));
+      return res.json(cats);
+    }
+    if (action === 'get_series_categories') {
+      const groups = Array.from(new Set(shows.map(s => s.group || 'TV Shows')));
+      const cats = groups.map((g) => ({ category_id: genId('series:' + g), category_name: g, parent_id: 0 }));
+      return res.json(cats);
+    }
+
+    if (action === 'get_live_streams') {
+      const byCat = new Map();
+      channels.forEach(c => {
+        const catId = genId('live:' + (c.group || 'Live'));
+        const stream_id = genId('ch:' + (c.url || c.id || c.name));
+        const item = {
+          num: 1,
+          name: c.name || 'Channel',
+          stream_type: 'live',
+          stream_id,
+          stream_icon: c.logo || '',
+          epg_channel_id: c.id || '',
+          added: '',
+          category_id: catId,
+          tvg_id: c.id || '',
+        };
+        if (!byCat.has(catId)) byCat.set(catId, []);
+        byCat.get(catId).push(item);
+      });
+      return res.json(Array.from(byCat.values()).flat());
+    }
+
+    if (action === 'get_vod_streams') {
+      const out = movies.map(m => ({
+        name: m.title || 'Movie',
+        stream_id: genId('vod:' + (m.url || m.tmdbId || m.title)),
+        stream_icon: m.poster || '',
+        rating: String(m.rating || ''),
+        added: '',
+        category_id: genId('vod:' + (m.group || 'Movies')),
+        container_extension: 'mp4',
+        plot: m.overview || ''
+      }));
+      return res.json(out);
+    }
+
+    if (action === 'get_series') {
+      const out = shows.map(s => ({
+        series_id: genId('series:' + (s.tmdbId || s.title)),
+        name: s.title || s.name || 'Series',
+        cover: s.poster || '',
+        plot: s.overview || '',
+        rating: String(s.rating || ''),
+        category_id: genId('series:' + (s.group || 'TV Shows')),
+      }));
+      return res.json(out);
+    }
+
+    if (action === 'get_series_info') {
+      const series_id = parseInt(req.query.series_id, 10);
+      const series = shows.find(s => genId('series:' + (s.tmdbId || s.title)) === series_id);
+      if (!series) return res.json({ episodes: {}, info: {}, seasons: [] });
+      const info = {
+        name: series.title || 'Series',
+        plot: series.overview || '',
+        cover: series.poster || '',
+        rating: String(series.rating || ''),
+        genres: series.genres || ''
+      };
+      const episodes = {};
+      (series.seasons || []).forEach(sea => {
+        const key = String(sea.season);
+        episodes[key] = (sea.episodes || []).filter(ep => ep.url).map(ep => ({
+          id: genId('ep:' + (ep.url || `${series.title}:${sea.season}:${ep.episode}`)),
+          episode_num: ep.episode,
+          title: ep.title || `E${ep.episode}`,
+          container_extension: 'mp4',
+          info: { duration: 0 }
+        }));
+      });
+      const seasons = (series.seasons || []).map(sea => ({ season_number: sea.season }));
+      return res.json({ episodes, info, seasons });
+    }
+
+    // Fallback unknown action
+    return res.json([]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// XMLTV passthrough for Xtream clients
+app.get('/xmltv.php', (req, res) => {
+  if (!requireXtreamAuth(req, res)) return;
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.send(latestEpg || '');
+});
+
+// M3U generator alias used by some Xtream clients
+app.get('/get.php', (req, res) => {
+  if (!requireXtreamAuth(req, res)) return;
+  // type=m3u or m3u_plus, output=ts|m3u8 ignored – reuse our Xtream M3U
+  res.redirect(302, '/playlist_xtream.m3u');
+});
+
+// Standard Xtream stream endpoints: redirect to real sources based on our DB
+async function findStreamSourceById(kind, id) {
+  const { channels, shows, movies } = await loadAllDataForXtream();
+  if (kind === 'live') {
+    for (const c of channels) {
+      const sid = genId('ch:' + (c.url || c.id || c.name));
+      if (sid === id) return c.url;
+    }
+    return null;
+  }
+  if (kind === 'movie') {
+    for (const m of movies) {
+      const sid = genId('vod:' + (m.url || m.tmdbId || m.title));
+      if (sid === id) return m.url;
+    }
+    return null;
+  }
+  if (kind === 'series') {
+    // series endpoint usually uses series_id + episode_id; we accept episode_id only
+    for (const s of shows) {
+      for (const sea of (s.seasons || [])) {
+        for (const ep of (sea.episodes || [])) {
+          const eid = genId('ep:' + (ep.url || `${s.title}:${sea.season}:${ep.episode}`));
+          if (eid === id) return ep.url;
+        }
+      }
+    }
+    return null;
+  }
+  return null;
+}
+
+app.get(['/live/:username/:password/:id', '/live/:username/:password/:id.:ext'], async (req, res) => {
+  if (!requireXtreamAuth(req, res)) return;
+  const streamId = parseInt(req.params.id, 10);
+  const src = await findStreamSourceById('live', streamId);
+  if (!src) return res.status(404).send('Stream not found');
+  res.redirect(302, src);
+});
+
+app.get(['/movie/:username/:password/:id', '/movie/:username/:password/:id.:ext'], async (req, res) => {
+  if (!requireXtreamAuth(req, res)) return;
+  const streamId = parseInt(req.params.id, 10);
+  const src = await findStreamSourceById('movie', streamId);
+  if (!src) return res.status(404).send('Stream not found');
+  res.redirect(302, src);
+});
+
+app.get(['/series/:username/:password/:seriesId/:episodeId', '/series/:username/:password/:seriesId/:episodeId.:ext'], async (req, res) => {
+  if (!requireXtreamAuth(req, res)) return;
+  const epId = parseInt(req.params.episodeId, 10);
+  const src = await findStreamSourceById('series', epId);
+  if (!src) return res.status(404).send('Episode not found');
+  res.redirect(302, src);
+});
