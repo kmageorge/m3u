@@ -19,6 +19,8 @@ const SALT_ROUNDS = 10;
 
 let latestPlaylist = "#EXTM3U";
 let latestEpg = '<?xml version="1.0" encoding="UTF-8"?>\n<tv></tv>';
+const XTREAM_USER = process.env.XTREAM_USERNAME || 'user';
+const XTREAM_PASS = process.env.XTREAM_PASSWORD || 'pass';
 
 // Initialize SQLite database
 const db = new sqlite3.Database('./m3u_studio.db', (err) => {
@@ -800,6 +802,45 @@ app.get("/playlist.m3u", (req, res) => {
   res.send(latestPlaylist);
 });
 
+// Generate an Xtream Codes style M3U that points back to this server
+app.get("/playlist_xtream.m3u", (req, res) => {
+  try {
+    const base = `${req.protocol}://${req.get('host')}`;
+    const lines = (latestPlaylist || '').split(/\r?\n/);
+    const out = [];
+    out.push('#EXTM3U');
+    let index = 1;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      if (line.startsWith('#EXTINF')) {
+        // Keep info line as-is
+        out.push(line);
+        // Next non-comment line is the media URL
+        let j = i + 1;
+        let src = '';
+        while (j < lines.length) {
+          const candidate = (lines[j] || '').trim();
+          if (candidate && !candidate.startsWith('#')) { src = candidate; break; }
+          j++;
+        }
+        // Build an xtream-like URL that redirects to the real source
+        const id = index++;
+        const ext = src.includes('.m3u8') ? 'm3u8' : src.includes('.mpd') ? 'mpd' : (src.split('?')[0].split('.').pop() || 'ts');
+        const xtreamUrl = `${base}/xtream/live/${encodeURIComponent(XTREAM_USER)}/${encodeURIComponent(XTREAM_PASS)}/${id}.${ext}?src=${encodeURIComponent(src)}`;
+        out.push(xtreamUrl);
+        // Skip to j for next iteration
+        i = j;
+      }
+    }
+    res.setHeader('Content-Type', 'audio/x-mpegurl; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(out.join('\n'));
+  } catch (err) {
+    res.status(500).send(`#EXTM3U\n# Error generating Xtream M3U: ${err.message}`);
+  }
+});
+
 app.post("/api/epg", express.text({ type: "*/*", limit: "10mb" }), (req, res) => {
   const body = req.body ?? "";
   if (!body.trim()) {
@@ -818,6 +859,19 @@ app.get("/epg.xml", (req, res) => {
 // Serve player page
 app.get("/player", (req, res) => {
   res.sendFile(path.join(__dirname, "player.html"));
+});
+
+// Minimal Xtream-style stream endpoints: redirect to original source URL
+app.get(['/xtream/live/:user/:pass/:id', '/xtream/live/:user/:pass/:id.:ext'], (req, res) => {
+  const { user, pass } = req.params;
+  const src = req.query.src;
+  if (!src) return res.status(400).send('Missing src');
+  // Optionally validate credentials (no-op if not set)
+  if ((XTREAM_USER && user !== XTREAM_USER) || (XTREAM_PASS && pass !== XTREAM_PASS)) {
+    return res.status(401).send('Unauthorized');
+  }
+  // Redirect to the real media URL so native players fetch it directly
+  res.redirect(302, src);
 });
 
 // ---------------- Transcode Service (FFmpeg) ----------------
