@@ -315,12 +315,57 @@
       const [selectedGenre, setSelectedGenre] = useState('all');
       
       const [nowPlaying, setNowPlaying] = useState(null);
+      
+      // EPG state
+      const [epgMappings, setEpgMappings] = useState({});
+      const [epgNowMap, setEpgNowMap] = useState({}); // epgChannelId -> { title, subtitle, start, stop }
 
       // Initial load: prefer LocalStorage; auth is optional and non-blocking
       useEffect(() => {
         loadLibraryLS();
         checkAuth().finally(() => setLoading(false));
       }, []);
+      
+      // Fetch EPG "now" data for channels with mappings
+      useEffect(() => {
+        if (channels.length === 0 || Object.keys(epgMappings).length === 0) return;
+        
+        let cancelled = false;
+        let timer;
+        
+        const fetchEpgNow = async () => {
+          try {
+            // Get EPG IDs for all channels that have mappings
+            const epgIds = channels
+              .map(ch => epgMappings[ch.id]?.epgChannelId)
+              .filter(Boolean);
+            
+            if (epgIds.length === 0) return;
+            
+            // De-duplicate and limit to 200
+            const uniq = Array.from(new Set(epgIds)).slice(0, 200);
+            const q = uniq.map(encodeURIComponent).join(',');
+            const resp = await fetch(`/api/epg/now?ids=${q}`);
+            
+            if (!resp.ok || cancelled) return;
+            
+            const data = await resp.json();
+            const results = data?.results || {};
+            setEpgNowMap(prev => ({ ...prev, ...results }));
+          } catch (err) {
+            console.warn('Failed to fetch EPG now:', err);
+          }
+        };
+        
+        fetchEpgNow();
+        // Refresh every 5 minutes
+        timer = setInterval(fetchEpgNow, 5 * 60 * 1000);
+        
+        return () => {
+          cancelled = true;
+          if (timer) clearInterval(timer);
+        };
+      }, [channels, epgMappings]);
 
       async function checkAuth() {
         try {
@@ -384,10 +429,12 @@
           const lsChannels = readLS('m3u_channels', []);
           const lsMovies = readLS('m3u_movies', []);
           const lsShows = readLS('m3u_shows', []);
+          const lsEpgMappings = readLS('m3u_epg_mappings', {});
           setChannels(Array.isArray(lsChannels) ? lsChannels.filter(c => c?.url) : []);
           setMovies(Array.isArray(lsMovies) ? lsMovies.filter(m => m?.url) : []);
           const showsPlayable = Array.isArray(lsShows) ? lsShows.filter(s => s?.seasons?.some(sea => sea?.episodes?.some(ep => ep?.url))) : [];
           setShows(showsPlayable);
+          setEpgMappings(lsEpgMappings || {});
         } catch (err) {
           console.error('Failed to read from localStorage:', err);
         }
@@ -396,14 +443,19 @@
       // Optional: fallback to API (if authenticated)
       async function loadLibraryFromAPI() {
         try {
-          const [channelsData, moviesData, showsData] = await Promise.all([
+          const [channelsData, moviesData, showsData, epgMappingsResp] = await Promise.all([
             apiCall('/api/db/channels'),
             apiCall('/api/db/movies'),
             apiCall('/api/db/shows'),
+            fetch('/api/db/settings/m3u_epg_mappings', { credentials: 'include' })
+              .then(r => r.ok ? r.json() : {})
+              .catch(() => ({}))
           ]);
           setChannels((channelsData.items || []).filter(c => c.url));
           setMovies((moviesData.items || []).filter(m => m.url));
           setShows((showsData.items || []).filter(s => s.seasons?.some(sea => sea.episodes?.some(ep => ep.url))));
+          const mappings = epgMappingsResp?.value ? JSON.parse(epgMappingsResp.value) : {};
+          setEpgMappings(mappings || {});
         } catch (err) {
           // Silent if unauth or API unavailable; LS remains the source of truth
           console.warn('API library load skipped or failed:', err?.message || err);
@@ -412,6 +464,16 @@
 
       function refreshFromLocalStorage() {
         loadLibraryLS();
+      }
+      
+      // Helper to format time
+      function formatTime(ms) {
+        try {
+          const d = new Date(ms);
+          return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch {
+          return '';
+        }
       }
 
       function playChannel(channel) {
@@ -693,32 +755,54 @@
           <div className="max-w-7xl mx-auto px-4 py-8">
             {activeTab === 'channels' && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {filteredChannels.map(channel => (
-                  <div
-                    key={channel.id}
-                    className="bg-slate-900/80 backdrop-blur-sm border border-slate-700 rounded-xl p-4 card-hover cursor-pointer"
-                    onClick={() => playChannel(channel)}
-                  >
-                    <div className="flex items-center gap-3 mb-3">
-                      {channel.logo ? (
-                        <img src={channel.logo} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-700" />
-                      ) : (
-                        <div className="w-16 h-16 rounded-lg bg-slate-800 flex items-center justify-center text-3xl">
-                          📺
+                {filteredChannels.map(channel => {
+                  const epgChannelId = epgMappings[channel.id]?.epgChannelId;
+                  const nowData = epgChannelId ? epgNowMap[epgChannelId] : null;
+                  
+                  return (
+                    <div
+                      key={channel.id}
+                      className="bg-slate-900/80 backdrop-blur-sm border border-slate-700 rounded-xl p-4 card-hover cursor-pointer"
+                      onClick={() => playChannel(channel)}
+                    >
+                      <div className="flex items-center gap-3 mb-3">
+                        {channel.logo ? (
+                          <img src={channel.logo} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-700" />
+                        ) : (
+                          <div className="w-16 h-16 rounded-lg bg-slate-800 flex items-center justify-center text-3xl">
+                            📺
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-white font-semibold truncate">{channel.name}</h3>
+                          {channel.group && (
+                            <span className="text-xs text-slate-400">{channel.group}</span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* EPG "Now Playing" Info */}
+                      {nowData && nowData.title && (
+                        <div className="mb-3 p-2 rounded-lg bg-purple-900/20 border border-purple-500/20">
+                          <div className="text-xs text-purple-300 font-semibold mb-0.5">📺 NOW</div>
+                          <div className="text-sm text-white font-medium truncate">{nowData.title}</div>
+                          {nowData.subtitle && (
+                            <div className="text-xs text-slate-400 truncate">{nowData.subtitle}</div>
+                          )}
+                          {nowData.start && nowData.stop && (
+                            <div className="text-xs text-slate-500 mt-1">
+                              {formatTime(nowData.start)} - {formatTime(nowData.stop)}
+                            </div>
+                          )}
                         </div>
                       )}
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-white font-semibold truncate">{channel.name}</h3>
-                        {channel.group && (
-                          <span className="text-xs text-slate-400">{channel.group}</span>
-                        )}
-                      </div>
+                      
+                      <button className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-all font-semibold">
+                        ▶️ Play Now
+                      </button>
                     </div>
-                    <button className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-all font-semibold">
-                      ▶️ Play Now
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
                 {filteredChannels.length === 0 && (
                   <div className="col-span-full text-center py-16">
                     <div className="text-6xl mb-4">📺</div>
