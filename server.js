@@ -1128,13 +1128,28 @@ app.post("/api/transcode/start", express.json(), async (req, res) => {
   const session = { id, dir: outDir, proc, startedAt: Date.now(), lastAccess: Date.now() };
   transcodeSessions.set(id, session);
 
+  // Handle spawn errors (e.g., ffmpeg missing) without crashing the server
+  let failed = false;
+  proc.on("error", (err) => {
+    failed = true;
+    cleanupSession(id);
+    if (!res.headersSent) {
+      try { return res.status(500).json({ error: "ffmpeg not available", details: err.message }); } catch {}
+    }
+  });
+
   proc.on("exit", () => {
     // keep files for a short while for clients to finish
     setTimeout(() => cleanupSession(id), 2 * 60 * 1000).unref();
   });
 
   const indexPath = path.join(outDir, "index.m3u8");
-  await waitForFile(indexPath, Number(process.env.TRANSCODE_READY_TIMEOUT || 8000));
+  const ready = await waitForFile(indexPath, Number(process.env.TRANSCODE_READY_TIMEOUT || 8000));
+  if (failed) return; // response already sent by error handler
+  if (!ready) {
+    cleanupSession(id);
+    return res.status(500).json({ error: "Transcode did not start in time" });
+  }
   res.json({ id, playlistUrl: `/transcode/${id}/index.m3u8` });
 });
 

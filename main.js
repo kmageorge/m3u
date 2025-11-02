@@ -23672,6 +23672,42 @@
       showToast(`Imported "${suggestion.title}" with ${Object.keys(episodeMap).length} episodes linked.`, "success");
     };
     const addChannel = () => setChannels((cs) => [...cs, { id: `ch-${Date.now()}`, name: "New Channel", url: "", logo: "", group: "Live", chno: cs.length + 1 }]);
+    const [newChannel, setNewChannel] = (0, import_react.useState)({ name: "", url: "", logo: "", group: "Live" });
+    const addChannelQuick = () => {
+      const name = sanitizeInput(newChannel.name);
+      const url = (newChannel.url || "").trim();
+      const logo = (newChannel.logo || "").trim();
+      const group = sanitizeInput(newChannel.group || "Live");
+      if (!name) {
+        showToast("Channel name is required", "error");
+        return;
+      }
+      if (!url || !isValidUrl(url)) {
+        showToast("Valid stream URL is required", "error");
+        return;
+      }
+      if (logo && !isValidUrl(logo)) {
+        showToast("Invalid logo URL", "error");
+        return;
+      }
+      if (channels.some((c) => (c.url || "").trim() === url)) {
+        showToast("A channel with this URL already exists", "error");
+        return;
+      }
+      setChannels((cs) => [
+        ...cs,
+        {
+          id: `ch-${Date.now()}`,
+          name,
+          url,
+          logo,
+          group: group || "Live",
+          chno: cs.length + 1
+        }
+      ]);
+      setNewChannel({ name: "", url: "", logo: "", group: group || "Live" });
+      showToast("Channel added", "success");
+    };
     const updateChannel = (idx, patch) => {
       if (patch.url !== void 0 && patch.url.trim() && !isValidUrl(patch.url)) {
         showToast("Invalid stream URL format", "error");
@@ -24588,7 +24624,39 @@ This will also remove ${channelImports.length} imported playlist record(s).`)) r
       "\u{1F5D1}\uFE0F Delete (",
       selectedChannels.size,
       ")"
-    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-slate-400" }, "Showing ", (() => {
+    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "p-4 rounded-xl bg-slate-800/40 border border-white/5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-semibold text-white mb-3" }, "\u2795 Quick Add Channel"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3" }, /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: inputClass,
+        placeholder: "Channel name",
+        value: newChannel.name,
+        onChange: (e) => setNewChannel((prev) => ({ ...prev, name: e.target.value }))
+      }
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: inputClass,
+        placeholder: "Stream URL (http/https/file)",
+        value: newChannel.url,
+        onChange: (e) => setNewChannel((prev) => ({ ...prev, url: e.target.value }))
+      }
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: inputClass,
+        placeholder: "Logo URL (optional)",
+        value: newChannel.logo,
+        onChange: (e) => setNewChannel((prev) => ({ ...prev, logo: e.target.value }))
+      }
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "input",
+      {
+        className: inputClass,
+        placeholder: "Group (e.g., Live, Sports)",
+        value: newChannel.group,
+        onChange: (e) => setNewChannel((prev) => ({ ...prev, group: e.target.value }))
+      }
+    ), /* @__PURE__ */ import_react.default.createElement("button", { className: primaryButton, onClick: addChannelQuick }, "Add"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between text-sm" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-slate-400" }, "Showing ", (() => {
       const filtered = channels.filter((ch, idx) => {
         const searchLower = channelSearchQuery.toLowerCase();
         const matchesSearch = !searchLower || ch.name?.toLowerCase().includes(searchLower) || ch.url?.toLowerCase().includes(searchLower);

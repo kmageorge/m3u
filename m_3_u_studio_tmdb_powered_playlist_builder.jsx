@@ -2572,6 +2572,30 @@ export default function App() {
 
   // ----- Channels -----
   const addChannel = () => setChannels(cs => [...cs, { id: `ch-${Date.now()}`, name: "New Channel", url: "", logo: "", group: "Live", chno: cs.length + 1 }]);
+  const [newChannel, setNewChannel] = useState({ name: "", url: "", logo: "", group: "Live" });
+  const addChannelQuick = () => {
+    const name = sanitizeInput(newChannel.name);
+    const url = (newChannel.url || "").trim();
+    const logo = (newChannel.logo || "").trim();
+    const group = sanitizeInput(newChannel.group || "Live");
+    if (!name) { showToast("Channel name is required", "error"); return; }
+    if (!url || !isValidUrl(url)) { showToast("Valid stream URL is required", "error"); return; }
+    if (logo && !isValidUrl(logo)) { showToast("Invalid logo URL", "error"); return; }
+    if (channels.some(c => (c.url || "").trim() === url)) { showToast("A channel with this URL already exists", "error"); return; }
+    setChannels(cs => [
+      ...cs,
+      {
+        id: `ch-${Date.now()}`,
+        name,
+        url,
+        logo,
+        group: group || "Live",
+        chno: (cs.length + 1)
+      }
+    ]);
+    setNewChannel({ name: "", url: "", logo: "", group: group || "Live" });
+    showToast("Channel added", "success");
+  };
   
   const updateChannel = (idx, patch) => {
     // Validate and sanitize inputs
@@ -4214,6 +4238,38 @@ export default function App() {
                         🗑️ Delete ({selectedChannels.size})
                       </button>
                     )}
+                  </div>
+                </div>
+
+                {/* Quick Add Channel */}
+                <div className="p-4 rounded-xl bg-slate-800/40 border border-white/5">
+                  <div className="text-sm font-semibold text-white mb-3">➕ Quick Add Channel</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <input
+                      className={inputClass}
+                      placeholder="Channel name"
+                      value={newChannel.name}
+                      onChange={(e)=>setNewChannel(prev=>({ ...prev, name: e.target.value }))}
+                    />
+                    <input
+                      className={inputClass}
+                      placeholder="Stream URL (http/https/file)"
+                      value={newChannel.url}
+                      onChange={(e)=>setNewChannel(prev=>({ ...prev, url: e.target.value }))}
+                    />
+                    <input
+                      className={inputClass}
+                      placeholder="Logo URL (optional)"
+                      value={newChannel.logo}
+                      onChange={(e)=>setNewChannel(prev=>({ ...prev, logo: e.target.value }))}
+                    />
+                    <input
+                      className={inputClass}
+                      placeholder="Group (e.g., Live, Sports)"
+                      value={newChannel.group}
+                      onChange={(e)=>setNewChannel(prev=>({ ...prev, group: e.target.value }))}
+                    />
+                    <button className={primaryButton} onClick={addChannelQuick}>Add</button>
                   </div>
                 </div>
 
