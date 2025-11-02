@@ -21510,6 +21510,14 @@
   // m_3_u_studio_tmdb_powered_playlist_builder.jsx
   var import_react = __toESM(require_react());
   var import_freekeys = __toESM(require_freekeys());
+  var STORAGE_KEYS = {
+    apiKey: "tmdb_api_key",
+    channels: "m3u_channels",
+    channelImports: "m3u_channel_imports",
+    shows: "m3u_shows",
+    movies: "m3u_movies",
+    libraryUrl: "m3u_library_url"
+  };
   var pad = (n, len = 2) => String(n).padStart(len, "0");
   var sanitize = (s) => (s ?? "").toString().replace(/\n/g, " ").trim();
   var dbCache = /* @__PURE__ */ new Map();
@@ -21584,6 +21592,11 @@
     }
   };
   var writeLS = (key, value) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (err) {
+      console.warn("localStorage write failed:", err);
+    }
   };
   var isValidUrl = (u) => {
     if (!u) return false;
@@ -22614,6 +22627,24 @@
     const [availableFolders, setAvailableFolders] = (0, import_react.useState)([]);
     const [selectedFolders, setSelectedFolders] = (0, import_react.useState)(/* @__PURE__ */ new Set());
     const [loadingFolders, setLoadingFolders] = (0, import_react.useState)(false);
+    (0, import_react.useEffect)(() => {
+      try {
+        localStorage.setItem(STORAGE_KEYS.channels, JSON.stringify(channels));
+      } catch (e) {
+      }
+    }, [channels]);
+    (0, import_react.useEffect)(() => {
+      try {
+        localStorage.setItem(STORAGE_KEYS.shows, JSON.stringify(shows));
+      } catch (e) {
+      }
+    }, [shows]);
+    (0, import_react.useEffect)(() => {
+      try {
+        localStorage.setItem(STORAGE_KEYS.movies, JSON.stringify(movies));
+      } catch (e) {
+      }
+    }, [movies]);
     const channelsByImport = (0, import_react.useMemo)(() => {
       const map = /* @__PURE__ */ new Map();
       channels.forEach((ch) => {

@@ -126,7 +126,11 @@ const readLS = (key, fallback) => {
 };
 
 const writeLS = (key, value) => {
-  // No-op now, we use database
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.warn("localStorage write failed:", err);
+  }
 };
 
 const saveLS = writeLS; // Alias for compatibility
@@ -1405,6 +1409,17 @@ export default function App() {
   const [availableFolders, setAvailableFolders] = useState([]);
   const [selectedFolders, setSelectedFolders] = useState(new Set());
   const [loadingFolders, setLoadingFolders] = useState(false);
+  
+  // Mirror admin changes to localStorage for the standalone player
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.channels, JSON.stringify(channels)); } catch (e) { /* noop */ }
+  }, [channels]);
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.shows, JSON.stringify(shows)); } catch (e) { /* noop */ }
+  }, [shows]);
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.movies, JSON.stringify(movies)); } catch (e) { /* noop */ }
+  }, [movies]);
   const channelsByImport = useMemo(() => {
     const map = new Map();
     channels.forEach(ch => {
