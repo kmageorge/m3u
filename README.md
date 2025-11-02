@@ -73,8 +73,10 @@ These are optional but recommended in production:
 - `PORT` – server port (default 3000)
 - `JWT_SECRET` – secret for auth tokens (default: demo value; set a strong one)
 - `PROXY_TIMEOUT` – ms timeout for the `/proxy` endpoint (default 15000)
-- `BING_IMAGE_API_KEY` – enables `/api/logos` channel logo search (Bing); optional when using local dataset
+- `BING_IMAGE_API_KEY` – enables `/api/logos` channel logo search (Bing); optional when using local datasets
 - `TV_LOGOS_DIR` – optional path to a local TV logos dataset; defaults to `assets/tv-logos` if present
+- `EPG_DATASET_DIR` – optional path to a local EPG dataset; defaults to `assets/epg` if present
+- `IPTV_STREAMS_DIR` – optional path to a local IPTV streams dataset; defaults to `assets/iptv-streams` if present
 
 Example:
 
@@ -169,14 +171,38 @@ Production checklist
 - Place behind a reverse proxy (Nginx/Caddy) with HTTPS
 - Persist the SQLite database file `m3u_studio.db` (bind mount or volume)
 - Restrict `/proxy` usage (trust boundary) and monitor logs
-- Optionally disable Bing by omitting `BING_IMAGE_API_KEY`. If the local dataset is present, `/api/logos` will still return local matches.
+- Optionally disable Bing by omitting `BING_IMAGE_API_KEY`. If the local datasets are present, `/api/logos` and `/api/streams/search` will still work.
 
-Local TV logos (optional)
-- This repo can include the curated tv-logos dataset as a submodule at `assets/tv-logos`.
-- Files are served at `/logos/...`. The `/api/logos` endpoint fuzzy‑matches filenames to your query and returns direct URLs under `/logos`.
-- If you cloned without submodules, initialize it:
-  - `git submodule update --init --recursive`
-  - Or set `TV_LOGOS_DIR` env var to another folder of logos.
+### Local datasets (optional)
+
+This repo can include curated datasets as git submodules:
+
+#### TV Logos (`assets/tv-logos`)
+- 10,000+ TV channel logos from [tv-logo/tv-logos](https://github.com/tv-logo/tv-logos)
+- Served at `/logos/...` for direct access
+- `/api/logos?query=<name>&top=N` fuzzy-matches filenames and returns URLs
+- Initialize: `git submodule update --init assets/tv-logos` or set `TV_LOGOS_DIR` env var
+
+#### EPG Dataset (`assets/epg`)
+- 36,000+ channel listings from [globetvapp/epg](https://github.com/globetvapp/epg)
+- Parsed from XMLTV files for auto-matching EPG channel IDs
+- `/api/epg/search?query=<name>&top=N` returns best matches with confidence scores
+- Quick Add UI auto-suggests EPG mappings based on channel name
+- Initialize: `git submodule update --init assets/epg` or set `EPG_DATASET_DIR` env var
+
+#### IPTV Streams (`assets/iptv-streams`)
+- 13,900+ free public IPTV stream URLs from [iptv-org/iptv](https://github.com/iptv-org/iptv)
+- Indexed from 300+ M3U playlists with fuzzy search
+- `/api/streams/search?query=<name>&top=N` returns stream URLs with logos, groups, and confidence scores
+- Quick Add UI auto-suggests working stream URLs as you type channel name
+- Click a suggestion to auto-fill URL, logo, and group fields
+- Initialize: `git submodule update --init assets/iptv-streams` or set `IPTV_STREAMS_DIR` env var
+- **Note:** This is a ~1GB clone; it may take a few minutes on first init
+
+To initialize all datasets at once:
+```bash
+git submodule update --init --recursive
+```
 
 Run as a service (example)
 
