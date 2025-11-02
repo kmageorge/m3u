@@ -45,22 +45,44 @@ const dbCache = new Map(); // In-memory cache for settings
 
 const readDB = async (key, fallback) => {
   try {
-    // Check cache first
+    // Prefer in-memory cache
     if (dbCache.has(key)) {
       return dbCache.get(key);
     }
-    
-    const response = await fetch(`/api/db/settings/${encodeURIComponent(key)}`);
-    if (!response.ok) {
-      console.warn(`Failed to read ${key} from database`);
-      return fallback;
+
+    // Try server first
+  const resp = await fetch(`/api/db/settings/${encodeURIComponent(key)}`, { credentials: 'include' });
+    if (resp.ok) {
+      const data = await resp.json();
+      const value = data.value ? JSON.parse(data.value) : undefined;
+      if (value !== undefined) {
+        dbCache.set(key, value);
+        // Mirror to localStorage for resilience
+        try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+        return value;
+      }
+    } else {
+      console.warn(`Failed to read ${key} from database (${resp.status})`);
     }
-    const data = await response.json();
-    const value = data.value ? JSON.parse(data.value) : fallback;
-    dbCache.set(key, value);
-    return value;
+
+    // Fallback to localStorage if available
+    try {
+      const ls = localStorage.getItem(key);
+      if (ls != null) {
+        const parsed = JSON.parse(ls);
+        dbCache.set(key, parsed);
+        return parsed;
+      }
+    } catch {}
+
+    return fallback;
   } catch (err) {
     console.warn("Database read failed:", err);
+    // Last-resort: localStorage
+    try {
+      const ls = localStorage.getItem(key);
+      return ls != null ? JSON.parse(ls) : fallback;
+    } catch {}
     return fallback;
   }
 };
@@ -68,16 +90,21 @@ const readDB = async (key, fallback) => {
 const writeDB = async (key, value) => {
   try {
     dbCache.set(key, value);
+    // Always mirror to localStorage so state survives refresh even if unauthenticated
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+
     const response = await fetch(`/api/db/settings/${encodeURIComponent(key)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ value })
     });
     if (!response.ok) {
-      console.warn(`Failed to write ${key} to database`);
+      console.warn(`Failed to write ${key} to database (${response.status})`);
     }
   } catch (err) {
     console.warn("Database write failed:", err);
+    // We already wrote to localStorage above; nothing else to do
   }
 };
 
@@ -86,7 +113,7 @@ const saveDB = writeDB; // Alias for compatibility
 // Load table data from database
 const loadTableDB = async (table) => {
   try {
-    const response = await fetch(`/api/db/${table}`);
+    const response = await fetch(`/api/db/${table}`, { credentials: 'include' });
     if (!response.ok) {
       console.warn(`Failed to load ${table} from database`);
       return [];
@@ -105,6 +132,7 @@ const saveTableDB = async (table, items) => {
     const response = await fetch(`/api/db/${table}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ items })
     });
     if (!response.ok) {
@@ -1522,10 +1550,18 @@ export default function App() {
   const [quickLogoLoading, setQuickLogoLoading] = useState(false);
   const [quickEpgSuggestion, setQuickEpgSuggestion] = useState(null); // { epgChannelId, epgSourceId, sourceName, confidence }
   const [quickEpgLoading, setQuickEpgLoading] = useState(false);
+  const [quickEpgSuggestions, setQuickEpgSuggestions] = useState([]); // dataset-based suggestions [{ id, name, confidence }]
+  const [quickEpgDatasetLoading, setQuickEpgDatasetLoading] = useState(false);
   const epgChannelsCacheRef = useRef(new Map()); // sourceId -> { loaded: bool, channels: [{ id, names:[], icon?:string }] }
   const [quickStreamCheck, setQuickStreamCheck] = useState({ state: 'idle', playable: false, status: 0, contentType: '', error: '' });
   const [quickStreamSuggestions, setQuickStreamSuggestions] = useState([]); // { name, url, logo, group, source, confidence }
   const [quickStreamLoading, setQuickStreamLoading] = useState(false);
+  // EPG now-playing cache: epgChannelId -> { title, subtitle, start, stop }
+  const [epgNowMap, setEpgNowMap] = useState({});
+
+  const formatHm = (ms) => {
+    try { const d = new Date(ms); return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
+  };
 
   const inputClass = "w-full px-4 py-3 rounded-xl border border-white/10 bg-slate-900/70 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-aurora/60 focus:border-aurora/50 transition-all duration-200";
   const textareaClass = `${inputClass} min-h-[140px] leading-relaxed resize-none`;
@@ -1850,6 +1886,37 @@ export default function App() {
     
     loadData();
   }, [user]); // Run when user authentication completes
+
+  // Auto-enable local EPG dataset source (globetvapp/epg) if present
+  useEffect(() => {
+    const ensureLocalEpgSource = async () => {
+      try {
+        // Probe a known file from the dataset served at /epg-dataset
+        const resp = await fetch('/epg-dataset/README.md', { method: 'HEAD' });
+        if (!resp.ok) return; // dataset not present
+        // If dataset present, ensure a source entry exists and is enabled
+        setEpgSources(prev => {
+          const exists = prev.find(s => s.id === 'epg-dataset');
+          if (!exists) {
+            const entry = {
+              id: 'epg-dataset',
+              name: 'Local EPG Dataset (globetvapp/epg)',
+              url: '',
+              enabled: true,
+              createdAt: Date.now()
+            };
+            return [...prev, entry];
+          }
+          if (exists && !exists.enabled) {
+            return prev.map(s => s.id === 'epg-dataset' ? { ...s, enabled: true } : s);
+          }
+          return prev;
+        });
+      } catch {}
+    };
+    // Run once on mount and when epgSources change (idempotent)
+    ensureLocalEpgSource();
+  }, [user, epgSources.length]);
   
   // Migrate from localStorage to database (one-time migration)
   const migrateFromLocalStorage = async () => {
@@ -1926,6 +1993,40 @@ export default function App() {
   useEffect(() => { if (epgSources.length >= 0) writeDB("m3u_epg_sources", epgSources); }, [epgSources]);
   useEffect(() => { writeDB("m3u_epg_mappings", epgMappings); }, [epgMappings]);
   useEffect(() => { writeDB("m3u_stream_health", streamHealthStatus); }, [streamHealthStatus]);
+  
+  // Fetch "what's on now" for mapped EPG channels visible in the current filter
+  useEffect(() => {
+    let timer;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        // Collect mapped EPG IDs for currently visible channels
+        const searchLower = channelSearchQuery.toLowerCase();
+        const ids = channels
+          .filter((ch) => {
+            const matchesSearch = !searchLower || ch.name?.toLowerCase().includes(searchLower) || ch.url?.toLowerCase().includes(searchLower);
+            const matchesGroup = channelGroupFilter === 'all' || (ch.group || 'Uncategorized') === channelGroupFilter;
+            return matchesSearch && matchesGroup;
+          })
+          .map((ch) => epgMappings[ch.id]?.epgChannelId)
+          .filter(Boolean);
+        if (ids.length === 0) return;
+        // De-duplicate and limit to 200 at once
+        const uniq = Array.from(new Set(ids)).slice(0, 200);
+        const q = uniq.map(encodeURIComponent).join(',');
+        const resp = await fetch(`/api/epg/now?ids=${q}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (cancelled) return;
+        const res = data?.results || {};
+        setEpgNowMap((prev) => ({ ...prev, ...res }));
+      } catch {}
+    };
+    run();
+    // Refresh every 5 minutes
+    timer = setInterval(run, 5 * 60 * 1000);
+    return () => { cancelled = true; if (timer) clearInterval(timer); };
+  }, [channels, epgMappings, channelSearchQuery, channelGroupFilter]);
   
   const [epgSyncStatus, setEpgSyncStatus] = useState("idle");
   const epgUrl = useMemo(() => {
@@ -2205,6 +2306,7 @@ export default function App() {
       if (!q) {
         setQuickLogoSuggestions([]);
         setQuickEpgSuggestion(null);
+        setQuickEpgSuggestions([]);
         setQuickStreamSuggestions([]);
         return;
       }
@@ -2228,6 +2330,22 @@ export default function App() {
         }
       } finally {
         setQuickEpgLoading(false);
+      }
+      // EPG dataset suggestions (independent of configured sources)
+      setQuickEpgDatasetLoading(true);
+      try {
+        const resp = await fetch(`/api/epg/search?query=${encodeURIComponent(q)}&top=5`);
+        const data = await resp.json();
+        if (Array.isArray(data?.results)) {
+          setQuickEpgSuggestions(data.results);
+        } else {
+          setQuickEpgSuggestions([]);
+        }
+      } catch (e) {
+        console.warn("EPG dataset suggestions failed", e);
+        setQuickEpgSuggestions([]);
+      } finally {
+        setQuickEpgDatasetLoading(false);
       }
       // Stream URL suggestions from IPTV dataset
       setQuickStreamLoading(true);
@@ -3705,6 +3823,9 @@ export default function App() {
               Channels
               {channels.length > 0 && <span className="px-2 py-0.5 text-xs rounded-full bg-white/20">{channels.length}</span>}
             </TabBtn>
+            <TabBtn icon="🗓️" active={active === "guide"} onClick={()=>setActive("guide")}>
+              TV Guide
+            </TabBtn>
             <TabBtn icon="�" active={active === "epg"} onClick={()=>setActive("epg")}>
               EPG
               {epgSources.length > 0 && <span className="px-2 py-0.5 text-xs rounded-full bg-white/20">{epgSources.length}</span>}
@@ -4357,6 +4478,131 @@ export default function App() {
           </div>
         )}
 
+        {active === "guide" && (
+          <div className="space-y-6">
+            <Card>
+              <div className="flex flex-col gap-6">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                  <div>
+                    <SectionTitle>🗓️ TV Guide</SectionTitle>
+                    <p className="text-sm text-slate-400 max-w-2xl">Browse your live channels with logos and what’s on now from your EPG mapping.</p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                    <button className={primaryButton} onClick={()=>setActive('channels')}>Manage Channels</button>
+                  </div>
+                </div>
+
+                {/* Search and Filter Bar (reuses channel filters) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-800/40 border border-white/5">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-2">Search Channels</label>
+                    <input
+                      type="text"
+                      className={inputClass}
+                      placeholder="Search by name..."
+                      value={channelSearchQuery}
+                      onChange={(e) => setChannelSearchQuery(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-2">Filter by Group</label>
+                    <select
+                      className={inputClass}
+                      value={channelGroupFilter}
+                      onChange={(e) => setChannelGroupFilter(e.target.value)}
+                    >
+                      <option value="all">All Groups</option>
+                      {(() => {
+                        const groups = new Set(channels.map(ch => ch.group || "Uncategorized"));
+                        return Array.from(groups).sort().map(group => (
+                          <option key={group} value={group}>{group}</option>
+                        ));
+                      })()}
+                    </select>
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <button
+                      className={`${ghostButton} flex-1`}
+                      onClick={() => {
+                        setChannelSearchQuery("");
+                        setChannelGroupFilter("all");
+                      }}
+                    >
+                      Clear Filters
+                    </button>
+                  </div>
+                </div>
+
+                {/* Guide Grid */}
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {channels.filter((ch) => {
+                    const searchLower = channelSearchQuery.toLowerCase();
+                    const matchesSearch = !searchLower || ch.name?.toLowerCase().includes(searchLower);
+                    const matchesGroup = channelGroupFilter === "all" || (ch.group || "Uncategorized") === channelGroupFilter;
+                    return matchesSearch && matchesGroup;
+                  }).map((ch, idx) => {
+                    const mapping = epgMappings[ch.id];
+                    const mappedSource = mapping ? epgSources.find(s => s.id === mapping.epgSourceId) : null;
+                    const nowData = mapping ? epgNowMap[mapping.epgChannelId] : null;
+                    return (
+                      <div key={`guide-${ch.id}`} className="rounded-xl border border-white/10 bg-slate-900/40 p-4 hover:border-aurora/30 transition-all">
+                        <div className="flex items-center gap-3">
+                          {ch.logo ? (
+                            <img src={ch.logo} alt="" className="h-10 w-10 rounded-lg border border-white/10 object-cover" />
+                          ) : (
+                            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-white/10 text-xs text-slate-500">📺</div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-white truncate">{ch.name || 'Channel'}</div>
+                            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
+                              <span className="px-1.5 py-0.5 rounded bg-slate-800/60 border border-white/10">{ch.group || 'Uncategorized'}</span>
+                              {mapping ? (
+                                <span className="px-1.5 py-0.5 rounded bg-green-500/10 border border-green-400/30 text-green-300" title={`EPG: ${mapping.epgChannelId} (${mappedSource?.name || mapping.epgSourceId})`}>
+                                  EPG ✓
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded bg-slate-800/60 border border-white/10" title="No EPG mapping">EPG •</span>
+                              )}
+                            </div>
+                          </div>
+                          {ch.url && (
+                            <button
+                              className="text-xs font-medium px-3 py-1.5 rounded-lg text-aurora hover:bg-aurora/10 transition-all shrink-0"
+                              onClick={() => setPlayerState({ url: ch.url, title: ch.name || 'Channel', type: 'channel' })}
+                              title="Play stream"
+                            >
+                              ▶️ Play
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="mt-3 text-xs text-slate-400">
+                          {mapping ? (
+                            nowData ? (
+                              <div className="truncate" title={`${new Date(nowData.start).toLocaleString()} - ${new Date(nowData.stop).toLocaleString()}`}>
+                                <span className="text-slate-500">Now:</span> <span className="text-slate-200">{nowData.title || '—'}</span>
+                                {nowData.subtitle && <span className="text-slate-500"> — </span>}
+                                {nowData.subtitle && <span>{nowData.subtitle}</span>}
+                                {(nowData.start && nowData.stop) && (
+                                  <span className="ml-2 text-slate-500">({formatHm(nowData.start)}–{formatHm(nowData.stop)})</span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-slate-500">Loading now-playing…</div>
+                            )
+                          ) : (
+                            <div className="text-slate-500">No EPG mapping</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
+
         {active === "channels" && (
           <div className="space-y-6">
             <Card>
@@ -4510,6 +4756,58 @@ export default function App() {
                         )}
                         {!quickEpgLoading && !quickEpgSuggestion && newChannel.name && (
                           <div className="text-xs text-slate-500">No EPG match found (enable sources to try)</div>
+                        )}
+                        {/* Dataset-based EPG suggestions list */}
+                        {(quickEpgDatasetLoading || quickEpgSuggestions.length > 0) && (
+                          <div className="mt-2 space-y-1">
+                            <div className="text-[11px] text-slate-500">Dataset suggestions</div>
+                            {quickEpgDatasetLoading && (
+                              <div className="text-xs text-slate-500">Searching dataset…</div>
+                            )}
+                            {!quickEpgDatasetLoading && quickEpgSuggestions.slice(0,4).map((sug, i) => (
+                              <div key={`${sug.id}-${i}`} className="flex items-center justify-between gap-2 px-2 py-1 rounded-lg border border-white/10 bg-slate-900/40">
+                                <div className="min-w-0">
+                                  <div className="text-xs text-slate-200 truncate">{sug.name || sug.id}</div>
+                                  <div className="text-[11px] text-slate-500">{Math.round((sug.confidence || 0) * 100)}%</div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    className="text-[11px] rounded-md border border-white/10 bg-slate-900/60 text-slate-300 px-2 py-1"
+                                    value={quickEpgSuggestion?.epgSourceId || (epgSources.find(s=>s.enabled)?.id || "")}
+                                    onChange={(e)=>{
+                                      const srcId = e.target.value;
+                                      if (quickEpgSuggestion) {
+                                        setQuickEpgSuggestion(prev => prev ? { ...prev, epgSourceId: srcId } : prev);
+                                      }
+                                    }}
+                                  >
+                                    <option value="">Pick source</option>
+                                    {epgSources.filter(s=>s.enabled).map(src => (
+                                      <option key={src.id} value={src.id}>{src.name}</option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    className="text-[11px] font-medium px-2 py-1 rounded-md border border-aurora/40 text-aurora hover:bg-aurora/10 disabled:opacity-40"
+                                    disabled={epgSources.filter(s=>s.enabled).length === 0}
+                                    title={epgSources.filter(s=>s.enabled).length === 0 ? 'Enable an EPG source to apply' : 'Use this EPG ID on add'}
+                                    onClick={() => {
+                                      const enabled = epgSources.filter(s=>s.enabled);
+                                      if (enabled.length === 0) return;
+                                      const source = enabled[0];
+                                      setQuickEpgSuggestion({
+                                        epgChannelId: sug.id,
+                                        epgSourceId: source.id,
+                                        sourceName: source.name || source.id,
+                                        confidence: sug.confidence || 0
+                                      });
+                                    }}
+                                  >
+                                    Apply
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
                       <div className="col-span-1">
@@ -4740,7 +5038,7 @@ export default function App() {
                         <th className="px-4 py-3 text-left font-semibold">#</th>
                         <th className="px-4 py-3 text-left font-semibold">Channel</th>
                         <th className="px-4 py-3 text-left font-semibold">Stream URL</th>
-                        <th className="px-4 py-3 text-left font-semibold">Group</th>
+                        <th className="px-4 py-3 text-left font-semibold">EPG</th>
                         <th className="px-4 py-3 text-center font-semibold">Health</th>
                         <th className="px-4 py-3 text-right font-semibold">Actions</th>
                       </tr>
@@ -4757,6 +5055,9 @@ export default function App() {
                         if (!matchesSearch || !matchesGroup) return null;
                         
                         const health = getStreamHealth(c.id);
+                        const mapping = epgMappings[c.id];
+                        const mappedSource = mapping ? epgSources.find(s => s.id === mapping.epgSourceId) : null;
+                        const lastChecked = health?.checkedAt ? new Date(health.checkedAt) : null;
                         
                         return (
                           <tr key={`${c.id}-row`} className="hover:bg-slate-900/60 transition-colors">
@@ -4786,7 +5087,33 @@ export default function App() {
                                     📺
                                   </div>
                                 )}
-                                <div className="text-sm font-medium text-white">{c.name || "Untitled channel"}</div>
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium text-white truncate">{c.name || "Untitled channel"}</div>
+                                  <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
+                                    <span className="px-1.5 py-0.5 rounded bg-slate-800/60 border border-white/10">{c.group || 'Uncategorized'}</span>
+                                    {mapping ? (
+                                      <span className="px-1.5 py-0.5 rounded bg-green-500/10 border border-green-400/30 text-green-300" title={`EPG: ${mapping.epgChannelId} (${mappedSource?.name || mapping.epgSourceId})`}>
+                                        EPG ✓
+                                      </span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.5 rounded bg-slate-800/60 border border-white/10" title="No EPG mapping">EPG •</span>
+                                    )}
+                                  </div>
+                                  {mapping && epgNowMap[mapping.epgChannelId] && (
+                                    <div className="mt-1 text-[11px] text-slate-400 truncate" title={`${new Date(epgNowMap[mapping.epgChannelId].start).toLocaleString()} - ${new Date(epgNowMap[mapping.epgChannelId].stop).toLocaleString()}`}>
+                                      Now: <span className="text-slate-200">{epgNowMap[mapping.epgChannelId].title || '—'}</span>
+                                      {epgNowMap[mapping.epgChannelId].subtitle ? (
+                                        <>
+                                          <span className="mx-1 text-slate-500">—</span>
+                                          <span>{epgNowMap[mapping.epgChannelId].subtitle}</span>
+                                        </>
+                                      ) : null}
+                                      {(epgNowMap[mapping.epgChannelId].start && epgNowMap[mapping.epgChannelId].stop) ? (
+                                        <span className="ml-2 text-slate-500">({formatHm(epgNowMap[mapping.epgChannelId].start)}–{formatHm(epgNowMap[mapping.epgChannelId].stop)})</span>
+                                      ) : null}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </td>
                             <td className="px-4 py-3 align-middle">
@@ -4808,9 +5135,7 @@ export default function App() {
                               )}
                             </td>
                             <td className="px-4 py-3 align-middle">
-                              <span className="px-2 py-1 rounded-md text-xs font-medium bg-slate-800/60 text-slate-300">
-                                {c.group || "Uncategorized"}
-                              </span>
+                              <span className="text-xs text-slate-400">{mapping ? `${mapping.epgChannelId}` : '—'}</span>
                             </td>
                             <td className="px-4 py-3 align-middle text-center">
                               {health ? (
@@ -4821,6 +5146,14 @@ export default function App() {
                                   <span className={`text-xs ${health.status === 'working' ? 'text-green-300' : 'text-red-300'}`}>
                                     {health.status === 'working' ? 'Online' : 'Offline'}
                                   </span>
+                                  <div className="text-[11px] text-slate-500 ml-2">
+                                    {typeof health.statusCode !== 'undefined' && (
+                                      <span>#{health.statusCode}</span>
+                                    )}
+                                    {lastChecked && (
+                                      <span className="ml-2">{lastChecked.toLocaleTimeString()}</span>
+                                    )}
+                                  </div>
                                 </div>
                               ) : (
                                 <span className="text-xs text-slate-500">Not checked</span>
@@ -4837,6 +5170,42 @@ export default function App() {
                                     ▶️ Play
                                   </button>
                                 )}
+                                {c.url && (
+                                  <button
+                                    className="text-xs font-medium px-3 py-1.5 rounded-lg text-slate-300 hover:bg-slate-700/30 transition-all"
+                                    onClick={async () => {
+                                      try { await navigator.clipboard.writeText(c.url); showToast('Copied URL to clipboard', 'success'); } catch { showToast('Copy failed', 'error'); }
+                                    }}
+                                    title="Copy URL"
+                                  >
+                                    📋 Copy
+                                  </button>
+                                )}
+                                {c.url && (
+                                  <button
+                                    className="text-xs font-medium px-3 py-1.5 rounded-lg text-slate-300 hover:bg-slate-700/30 transition-all"
+                                    onClick={async () => {
+                                      const result = await checkStreamHealth(c.url, 6000);
+                                      setStreamHealthStatus(prev => ({ ...prev, [c.id]: { ...result, url: c.url, name: c.name, type: 'channel' } }));
+                                      showToast(result.status === 'working' ? 'Stream is online' : 'Stream seems offline', result.status === 'working' ? 'success' : 'error');
+                                    }}
+                                    title="Probe now"
+                                  >
+                                    🔍 Check
+                                  </button>
+                                )}
+                                <button
+                                  className="text-xs font-medium px-3 py-1.5 rounded-lg text-slate-300 hover:bg-slate-700/30 transition-all"
+                                  onClick={() => {
+                                    const now = Date.now();
+                                    const copy = { ...c, id: `ch-${now}`, chno: channels.length + 1 };
+                                    setChannels(prev => [...prev, copy]);
+                                    showToast('Channel duplicated', 'success');
+                                  }}
+                                  title="Duplicate channel"
+                                >
+                                  ⎘ Duplicate
+                                </button>
                                 <button
                                   className="text-xs font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-500/20 transition-all"
                                   onClick={() => removeChannel(idx)}

@@ -1098,6 +1098,7 @@ async function buildEpgDatasetIndex() {
   if (global.__epgDatasetIndex) return global.__epgDatasetIndex;
   if (!fs.existsSync(EPG_DATASET_DIR)) { global.__epgDatasetIndex = { channels: [] }; return global.__epgDatasetIndex; }
   const channels = [];
+  const channelFiles = new Map(); // id -> Set(files)
   const exts = new Set(['.xml']);
   const walk = (dir) => {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -1121,14 +1122,23 @@ async function buildEpgDatasetIndex() {
               const val = (nm[1] || '').replace(/<[^>]*>/g, '').trim();
               if (val) names.push(val);
             }
-            if (id || names.length) channels.push({ id, names, normId: normalizeNameServer(id), normNames: names.map(normalizeNameServer) });
+            if (id || names.length) {
+              channels.push({ id, names, normId: normalizeNameServer(id), normNames: names.map(normalizeNameServer) });
+              if (id) {
+                const set = channelFiles.get(id) || new Set();
+                set.add(p);
+                channelFiles.set(id, set);
+              }
+            }
           }
         } catch {}
       }
     }
   };
   walk(EPG_DATASET_DIR);
-  global.__epgDatasetIndex = { channels };
+  const channelFilesObj = {};
+  for (const [id, set] of channelFiles.entries()) channelFilesObj[id] = Array.from(set);
+  global.__epgDatasetIndex = { channels, channelFiles: channelFilesObj };
   console.log(`Indexed EPG dataset: ${channels.length} channels`);
   return global.__epgDatasetIndex;
 }
@@ -1147,6 +1157,67 @@ app.get('/api/epg/search', async (req, res) => {
     .sort((a,b) => b.confidence - a.confidence)
     .slice(0, top);
   return res.json({ results: scored });
+});
+
+// Parse XMLTV datetime string to epoch ms
+function parseXmltvDate(str) {
+  if (!str) return null;
+  const m = String(str).trim().match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\s?([+-]\d{4}|Z))?/);
+  if (!m) return null;
+  const y = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1, d = parseInt(m[3], 10);
+  const hh = parseInt(m[4], 10), mm = parseInt(m[5], 10), ss = parseInt(m[6], 10);
+  let t = Date.UTC(y, mo, d, hh, mm, ss);
+  const tz = m[7];
+  if (tz && tz !== 'Z') {
+    const sign = tz[0] === '-' ? -1 : 1;
+    const th = parseInt(tz.slice(1, 3), 10) || 0;
+    const tm = parseInt(tz.slice(3, 5), 10) || 0;
+    const offsetMin = sign * (th * 60 + tm);
+    t -= offsetMin * 60000; // convert to UTC
+  }
+  return t;
+}
+
+// Current programme for given EPG channel IDs
+app.get('/api/epg/now', async (req, res) => {
+  try {
+    const idsParam = (req.query.ids || req.query.id || '').toString().trim();
+    if (!idsParam) return res.json({ results: {} });
+    const ids = idsParam.split(',').map(s => s.trim()).filter(Boolean).slice(0, 100);
+    const { channelFiles = {} } = await buildEpgDatasetIndex();
+    const now = Date.now();
+    const results = {};
+    for (const id of ids) {
+      const files = channelFiles[id] || [];
+      let found = null;
+      for (const file of files) {
+        try {
+          const text = fs.readFileSync(file, 'utf8');
+          const safeId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const progRegex = new RegExp(`<programme[^>]*channel="${safeId}"[^>]*>([\\s\\S]*?)<\\/programme>`, 'gi');
+          let m;
+          while ((m = progRegex.exec(text)) !== null) {
+            const block = m[0];
+            const start = parseXmltvDate((block.match(/start="([^"]+)"/) || [])[1]);
+            const stop = parseXmltvDate((block.match(/stop="([^"]+)"/) || [])[1]);
+            if (start == null || stop == null) continue;
+            if (start <= now && now < stop) {
+              const title = ((block.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '').replace(/<[^>]*>/g, '').trim();
+              const subtitle = ((block.match(/<sub-title[^>]*>([\s\S]*?)<\/sub-title>/i) || [])[1] || '').replace(/<[^>]*>/g, '').trim();
+              results[id] = { id, title, subtitle, start, stop };
+              found = results[id];
+              break;
+            }
+          }
+        } catch {}
+        if (found) break;
+      }
+      if (!found) results[id] = null;
+    }
+    res.json({ results });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
 });
 
 // Build in-memory index of IPTV streams from M3U files
