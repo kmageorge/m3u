@@ -16,6 +16,7 @@ const PROXY_TIMEOUT = Number(process.env.PROXY_TIMEOUT || 15000);
 const BING_IMAGE_API_KEY = process.env.BING_IMAGE_API_KEY || "";
 const JWT_SECRET = process.env.JWT_SECRET || "m3u-studio-secret-change-in-production";
 const SALT_ROUNDS = 10;
+const TV_LOGOS_DIR = process.env.TV_LOGOS_DIR || path.join(__dirname, 'assets', 'tv-logos');
 
 let latestPlaylist = "#EXTM3U";
 let latestEpg = '<?xml version="1.0" encoding="UTF-8"?>\n<tv></tv>';
@@ -399,6 +400,22 @@ function initializeDatabase() {
     seed();
   });
 }
+
+// Serve local tv logos (if present) under /logos (register early)
+try {
+  if (fs.existsSync(TV_LOGOS_DIR)) {
+    app.use('/logos', express.static(TV_LOGOS_DIR, { maxAge: '30d', setHeaders: (res) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }}));
+    console.log(`Serving local TV logos from ${TV_LOGOS_DIR} at /logos`);
+    // Simple health check route for debugging logos serving
+    app.get('/logos-test', (req, res) => {
+      const testFile = path.join(TV_LOGOS_DIR, 'countries', 'united-kingdom', 'bbc-one-uk.png');
+      if (!fs.existsSync(testFile)) return res.status(404).send('test file missing');
+      res.sendFile(testFile);
+    });
+  }
+} catch {}
 
 app.use(express.static(path.resolve(__dirname)));
 app.use(express.json({ limit: "10mb" }));
@@ -914,38 +931,90 @@ app.get("/api/logos", async (req, res) => {
   if (!query) {
     return res.json({ results: [] });
   }
-  if (!BING_IMAGE_API_KEY) {
-    return res.json({ results: [] });
-  }
+  // Helper: local search in tv-logos dataset
+  const resultsLocal = [];
   try {
-    const searchUrl = new URL("https://api.bing.microsoft.com/v7.0/images/search");
-    searchUrl.searchParams.set("q", `${query} channel logo`);
-    searchUrl.searchParams.set("count", String(top));
-    searchUrl.searchParams.set("safeSearch", "Strict");
-    searchUrl.searchParams.set("aspect", "wide");
-    const logoRes = await fetch(searchUrl, {
-      headers: {
-        "Ocp-Apim-Subscription-Key": BING_IMAGE_API_KEY
+    if (fs.existsSync(TV_LOGOS_DIR)) {
+      if (!global.__tvLogosIndex) {
+        const exts = new Set(['.png', '.svg', '.webp', '.jpg', '.jpeg']);
+        const items = [];
+        const walk = (dir, rel = '') => {
+          const entries = fs.readdirSync(dir, { withFileTypes: true });
+          for (const e of entries) {
+            const abs = path.join(dir, e.name);
+            const r = path.join(rel, e.name);
+            if (e.isDirectory()) walk(abs, r);
+            else {
+              const ext = path.extname(e.name).toLowerCase();
+              if (!exts.has(ext)) continue;
+              const base = path.basename(e.name, ext);
+              const norm = base.toLowerCase().replace(/[_-]+/g, ' ').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+              items.push({ base, rel: r, norm });
+            }
+          }
+        };
+        walk(TV_LOGOS_DIR);
+        global.__tvLogosIndex = items;
+        console.log(`Indexed ${items.length} tv-logo files`);
       }
-    });
-    if (!logoRes.ok) {
-      const text = await logoRes.text();
-      return res.status(502).json({ results: [], error: text });
+      const normQ = query.toLowerCase().replace(/[_-]+/g, ' ').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+      // Score: exact norm match first, then prefix, then jaccard tokens
+      const tokens = new Set(normQ.split(' ').filter(Boolean));
+      const score = (item) => {
+        if (item.norm === normQ) return 1.0;
+        if (item.norm.startsWith(normQ) || normQ.startsWith(item.norm)) return 0.92;
+        const tb = new Set(item.norm.split(' ').filter(Boolean));
+        let inter = 0; tokens.forEach(t => { if (tb.has(t)) inter++; });
+        const uni = new Set([...tokens, ...tb]).size || 1;
+        return inter / uni;
+      };
+      const ranked = [...global.__tvLogosIndex]
+        .map(it => ({ it, s: score(it) }))
+        .filter(x => x.s >= 0.4)
+        .sort((a,b) => b.s - a.s)
+        .slice(0, top)
+        .map(({ it, s }) => ({ url: `/logos/${it.rel.replace(/\\/g,'/')}`, title: it.base, source: 'local', score: s }));
+      resultsLocal.push(...ranked);
     }
-    const data = await logoRes.json();
-    const results = Array.isArray(data?.value)
-      ? data.value
-          .map(item => ({
-            url: item.thumbnailUrl || item.contentUrl || "",
-            title: item.name || query,
-            source: item.hostPageDisplayUrl || item.hostPageUrl || ""
-          }))
-          .filter(item => item.url)
-      : [];
-    res.json({ results });
-  } catch (err) {
-    res.status(500).json({ results: [], error: err.message });
+  } catch {}
+
+  // Remote Bing fallback/merge
+  let resultsBing = [];
+  if (BING_IMAGE_API_KEY) {
+    try {
+      const searchUrl = new URL("https://api.bing.microsoft.com/v7.0/images/search");
+      searchUrl.searchParams.set("q", `${query} channel logo`);
+      searchUrl.searchParams.set("count", String(top));
+      searchUrl.searchParams.set("safeSearch", "Strict");
+      searchUrl.searchParams.set("aspect", "wide");
+      const logoRes = await fetch(searchUrl, {
+        headers: {
+          "Ocp-Apim-Subscription-Key": BING_IMAGE_API_KEY
+        }
+      });
+      if (logoRes.ok) {
+        const data = await logoRes.json();
+        resultsBing = Array.isArray(data?.value)
+          ? data.value
+              .map(item => ({
+                url: item.thumbnailUrl || item.contentUrl || "",
+                title: item.name || query,
+                source: item.hostPageDisplayUrl || item.hostPageUrl || ""
+              }))
+              .filter(item => item.url)
+          : [];
+      }
+    } catch {}
   }
+  // Combine, preferring local exact matches first
+  const seen = new Set();
+  const combined = [];
+  const pushUnique = (arr) => arr.forEach(r => { const k = r.url; if (k && !seen.has(k)) { seen.add(k); combined.push(r); } });
+  // local already ranked; keep order
+  pushUnique(resultsLocal);
+  pushUnique(resultsBing);
+  const final = combined.slice(0, top);
+  return res.json({ results: final });
 });
 
 app.post("/api/playlist", express.text({ type: "*/*", limit: "10mb" }), (req, res) => {
