@@ -57,6 +57,10 @@ First‑run admin:
   - Delete All Movies
   - Delete EVERYTHING (all the above)
 
+See docs:
+- docs/ARCHITECTURE.md – current architecture and limitations
+- docs/ROADMAP.md – phased plan to improve library management
+
 
 ## Environment variables
 
