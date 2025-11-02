@@ -1356,6 +1356,10 @@ function VideoPlayer({ url, playerRef }) {
       player.on('error', () => {
         tryProxyThenTranscode();
       });
+      // If original source is MKV, proactively attempt transcode for AAC audio compatibility
+      if (/\.mkv(\?|$)/i.test(url)) {
+        tryProxyThenTranscode();
+      }
     });
 
     playerRef.current = player;

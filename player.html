@@ -173,6 +173,10 @@
           player.on('error', () => {
             tryProxyThenTranscode();
           });
+          // If source is MKV, auto try transcode to ensure AAC audio compatibility
+          if (/\.mkv(\?|$)/i.test(url)) {
+            tryProxyThenTranscode();
+          }
         });
 
         playerRef.current = player;
@@ -209,6 +213,42 @@
                 className="text-white hover:text-red-400 transition-colors text-3xl"
               >
                 ✕
+              </button>
+            </div>
+            {/* Quick action to fix audio via transcode */}
+            <div className="flex items-center justify-end mb-3 px-2">
+              <button
+                onClick={() => {
+                  // Manually trigger transcode fallback immediately
+                  fallbackRef.current.triedProxy = true; // skip proxy
+                  if (playerRef.current && !fallbackRef.current.tried) {
+                    // Reuse the same logic by emitting error handler
+                    try {
+                      playerRef.current.error({ code: 4 });
+                    } catch {
+                      // Fallback to direct invocation
+                      (async () => {
+                        try {
+                          const resp = await fetch('/api/transcode/start', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ src: url })
+                          });
+                          if (!resp.ok) throw new Error('transcode start failed');
+                          const data = await resp.json();
+                          fallbackRef.current.transcodeId = data.id;
+                          const p = window.videojs.getPlayer(videoRef.current);
+                          if (p) {
+                            p.src({ src: data.playlistUrl, type: 'application/x-mpegURL' });
+                            p.play();
+                          }
+                        } catch (e) { console.warn('Manual transcode failed', e); }
+                      })();
+                    }
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm"
+                title="If you don't hear audio, transcode to AAC"
+              >
+                Transcode (fix audio)
               </button>
             </div>
             

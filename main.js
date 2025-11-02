@@ -22589,6 +22589,9 @@
         player.on("error", () => {
           tryProxyThenTranscode();
         });
+        if (/\.mkv(\?|$)/i.test(url)) {
+          tryProxyThenTranscode();
+        }
       });
       playerRef.current = player;
       return () => {
